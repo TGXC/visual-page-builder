@@ -1,18 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import FieldControl from '@/components/shared/FieldControl.vue'
-import { childrenOf } from '@/core/tree'
-import type { FormSchema } from '@/core/types'
+import FieldRuntime from '@/components/runtime/FieldRuntime.vue'
+import { visibleFields } from '@/core/validation'
+import type { ErrorMap, FormSchema, FormValues } from '@/core/types'
 
 /**
  * 运行态渲染器：与 Canvas 吃同一份 schema，区别是这里会绑值、校验、提交。
- * M2 只做到「渲染一致」，值绑定与错误展示在 M5。
+ * 它是哑组件——值由外面传进来（runtime store），提交也只是通知外面，自己不碰 store。
  */
-const props = defineProps<{ schema: FormSchema }>()
+const props = defineProps<{ schema: FormSchema; values?: FormValues; errors?: ErrorMap }>()
 
-const emit = defineEmits<{ (e: 'submit'): void }>()
+const emit = defineEmits<{
+  (e: 'submit'): void
+  (e: 'update:value', name: string, value: unknown): void
+}>()
 
-const fields = computed(() => childrenOf(props.schema.fields, null))
+const formValues = computed<FormValues>(() => props.values ?? {})
+
+/** 只显示可见字段：条件不满足的、以及隐藏分组里的字段都不渲染 */
+const fields = computed(() => visibleFields(props.schema, formValues.value))
 </script>
 
 <template>
@@ -22,10 +28,14 @@ const fields = computed(() => childrenOf(props.schema.fields, null))
 
     <div v-if="fields.length === 0" class="fb-empty">这张表单还没有字段</div>
     <template v-else>
-      <div v-for="field in fields" :key="field.id" class="fb-field">
-        <label class="fb-field__label" :for="field.id">{{ field.label }}</label>
-        <FieldControl :field="field" />
-      </div>
+      <FieldRuntime
+        v-for="field in fields"
+        :key="field.id"
+        :field="field"
+        :value="formValues[field.name]"
+        :errors="errors?.[field.name]"
+        @update:value="emit('update:value', field.name, $event)"
+      />
     </template>
 
     <div class="fb-form__actions">

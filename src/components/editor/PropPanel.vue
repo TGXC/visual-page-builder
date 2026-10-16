@@ -1,18 +1,28 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import ConditionEditor from './ConditionEditor.vue'
+import RuleEditor from './RuleEditor.vue'
 import { getDescriptor } from '@/fields'
 import type { PropSpec } from '@/fields/registry'
-import type { FieldNode, MutableFieldKey } from '@/core/types'
+import type { Condition, FieldNode, MutableFieldKey, ValidationRule } from '@/core/types'
 
 /**
  * 属性面板：完全由字段自己声明的 propSchema 生成，面板里没有任何具体字段的知识。
  * 注意这里是**整体替换** props（不是局部合并），和 updateField 的语义一致。
  */
-const props = defineProps<{ field: FieldNode | null }>()
+const props = defineProps<{ field: FieldNode | null; fields: FieldNode[] }>()
 
 const emit = defineEmits<{
   update: [id: string, patch: Partial<Pick<FieldNode, MutableFieldKey>>]
 }>()
+
+function emitRules(rules: ValidationRule[]): void {
+  if (props.field) emit('update', props.field.id, { rules })
+}
+
+function emitCondition(visibleWhen: Condition | null): void {
+  if (props.field) emit('update', props.field.id, { visibleWhen })
+}
 
 const descriptor = computed(() => (props.field ? getDescriptor(props.field.type) : null))
 
@@ -140,6 +150,9 @@ function parseOptions(text: string): Array<{ label: string; value: string }> {
           @input="onInput(spec, $event)"
         />
       </label>
+
+      <RuleEditor :field="field" @update:rules="emitRules" />
+      <ConditionEditor :field="field" :fields="fields" @update:visible-when="emitCondition" />
     </div>
   </aside>
 </template>

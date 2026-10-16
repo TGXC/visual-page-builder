@@ -93,7 +93,7 @@ const fieldCount = computed(() => store.schema.fields.length)
     </div>
 
     <div class="fb-editor__side">
-      <PropPanel :field="store.selectedField" @update="store.updateField" />
+      <PropPanel :field="store.selectedField" :fields="store.schema.fields" @update="store.updateField" />
       <HistoryPanel :labels="history.labels" :index="history.position" @jump="history.jumpTo" />
     </div>
 

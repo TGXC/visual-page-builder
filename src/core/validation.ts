@@ -1,3 +1,4 @@
+import { normalizeFieldOrder } from './tree'
 import type { Condition, CustomRuleName, ErrorMap, FieldNode, FormSchema, FormValues } from './types'
 
 /** 规则名 → 校验函数。规则里不放函数，函数集中在这张表里。 */
@@ -24,9 +25,40 @@ export function evaluateCondition(cond: Condition | null, values: FormValues): b
   }
 }
 
-/** 参与填写的字段：分组容器只是布局，条件不满足的字段直接不进校验。 */
+/**
+ * 参与填写的字段：分组容器只是布局，条件不满足的字段直接不进校验。
+ * 分组的条件会连带子孙：外层分组隐藏时，组里的字段也不该出现（D15）。
+ * 返回顺序是**显示顺序**（树前序），所以调用方直接渲染即可，不必自己排 order。
+ */
 export function visibleFields(schema: FormSchema, values: FormValues): FieldNode[] {
-  return schema.fields.filter(f => f.type !== 'group' && evaluateCondition(f.visibleWhen, values))
+  const displayOrder = new Map(normalizeFieldOrder(schema.fields).map((f, index) => [f.id, index]))
+
+  const hiddenGroups = new Set(
+    schema.fields.filter(f => f.type === 'group' && !evaluateCondition(f.visibleWhen, values)).map(f => f.id),
+  )
+
+  const byId = new Map(schema.fields.map(f => [f.id, f]))
+  const underHiddenGroup = (field: FieldNode): boolean => {
+    const seen = new Set<string>([field.id])
+    let parentId = field.parentId
+    while (parentId !== null) {
+      if (hiddenGroups.has(parentId)) return true
+      // 脏数据里可能有环，撞到走过的节点就停
+      if (seen.has(parentId)) return false
+      seen.add(parentId)
+      parentId = byId.get(parentId)?.parentId ?? null
+    }
+    return false
+  }
+
+  return schema.fields
+    .filter(
+      f =>
+        f.type !== 'group' &&
+        evaluateCondition(f.visibleWhen, values) &&
+        (hiddenGroups.size === 0 || !underHiddenGroup(f)),
+    )
+    .sort((a, b) => (displayOrder.get(a.id) ?? 0) - (displayOrder.get(b.id) ?? 0))
 }
 
 /**
