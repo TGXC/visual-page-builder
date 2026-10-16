@@ -4,6 +4,7 @@ import Canvas from './Canvas.vue'
 import ComponentPalette from './ComponentPalette.vue'
 import HistoryPanel from './HistoryPanel.vue'
 import PropPanel from './PropPanel.vue'
+import SchemaActions from './SchemaActions.vue'
 import { useDragField } from '@/composables/useDragField'
 import { useKeyboard } from '@/composables/useKeyboard'
 import { useSortable } from '@/composables/useSortable'
@@ -95,6 +96,7 @@ const fieldCount = computed(() => store.schema.fields.length)
     <div class="fb-editor__side">
       <PropPanel :field="store.selectedField" :fields="store.schema.fields" @update="store.updateField" />
       <HistoryPanel :labels="history.labels" :index="history.position" @jump="history.jumpTo" />
+      <SchemaActions :schema="store.schema" @import="store.setSchema" />
     </div>
 
     <div v-if="ghost" class="fb-drag-ghost" :style="{ left: `${ghost.x}px`, top: `${ghost.y}px` }">

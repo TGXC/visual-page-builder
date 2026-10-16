@@ -42,9 +42,12 @@ export const useSchemaStore = defineStore('schema', () => {
   const selectedField = computed(() => (selectedId.value ? (fieldById.value.get(selectedId.value) ?? null) : null))
   const tree = computed(() => buildTree(schema.value.fields))
 
-  // 自动保存：所有变更都落到 history.base 上，所以监听一处就够
+  // 自动保存：所有变更都落到 history.base 上，所以监听一处就够。
+  // `persisting` 为 false 时（分享页加载别人的 schema）只读不写，别覆盖访客的草稿。
+  let persisting = true
   let timer: ReturnType<typeof setTimeout> | null = null
   function scheduleSave(): void {
+    if (!persisting) return
     if (timer !== null) clearTimeout(timer)
     timer = setTimeout(() => {
       timer = null
@@ -176,8 +179,12 @@ export const useSchemaStore = defineStore('schema', () => {
     return copyId
   }
 
-  /** 导入 JSON / 新建表单：换一条时间线 */
-  function setSchema(next: FormSchema): void {
+  /**
+   * 导入 JSON / 新建表单：换一条时间线。
+   * `persist: false` 用在分享页——打开别人的链接不该覆盖访客自己的草稿（D21）。
+   */
+  function setSchema(next: FormSchema, options: { persist?: boolean } = {}): void {
+    persisting = options.persist ?? true
     history.reset(next)
     selectedIds.value = []
   }

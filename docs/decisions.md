@@ -145,3 +145,35 @@ M1 的 `visibleFields` 只看字段自己的 `visibleWhen`，于是「宠物信�
 属性面板再交给 `updateField` —— 于是它们自动获得历史栈、合并窗口（`mergeKey`
 `update:<id>:rules` / `update:<id>:visibleWhen`）和 localStorage 自动保存，
 没有为「改规则」单独开一条写入路径。
+
+## D19 导入与读档都先过 `normalizeSchema`
+
+手写的 JSON、分享链接里的数据、上个版本存下的档，都可能在字段里缺 `props`、`order` 乱掉、
+`parentId` 指向一个已经删掉的字段、两个字段用同一个 `name`。与其在渲染器、校验器、
+拖拽逻辑里到处写防御代码，不如在**入口**收敛一次：
+
+- 未知 `type` → `text`（不认识就降级成最普通的字段，而不是让渲染器抛「未注册的字段类型」）
+- 重复 `id` → 后来者换新 id（id 是补丁定位字段的唯一依据，撞了整条历史都错）
+- 重复 `name` → 后来者变成 `name1`（`name` 是提交结果的键）
+- `parentId` 指向不存在的字段 → 挂回根层（孤儿字段会从画布上消失，比挪个位置糟糕得多）
+- 父子成环 → 断开（否则 `buildTree` 直接死循环）
+- 同级 `order` 重排成 `0..n-1`（手改过的 JSON 里可能是 5、5、9）
+- 非法 `rules` / `visibleWhen` 丢掉，合法的原样保留
+
+代价是「导入会悄悄改用户的数据」。这是有意的取舍：这些数据本来就是坏的（点不出来、
+渲染不出来），而且改完在界面上是可见的，比报错拒绝导入更符合「分享链接打开就能填」。
+
+## D20 分享链接用 lz-string，超过 2000 字符就劝人改用导出
+
+`compressToEncodedURIComponent(JSON.stringify(schema, null, 2))` →
+`/share?d=...`，解不开或解出来不是表单就显示「分享链接不完整或已损坏」。
+上限定 2000：主流浏览器和聊天工具的 URL 上限在这个量级，超了就是「发出去被截断，
+对方看到坏链接」，不如当场提示。所以分享是**短表单的便利通道**，长表单仍然走导出 JSON。
+
+## D21 分享页写进 store 但 `persist: false`
+
+分享页需要一个能填、能校验的表单，而 `runtime` store 是绑在 `schema` store 上的，
+所以解出来的 schema 必须进 store。但直接 `setSchema` 会触发自动保存，
+把访客自己 localStorage 里的草稿覆盖掉——打开一条别人的链接不该有这种副作用。
+于是 `setSchema(next, { persist: false })` 把这家 store 的自动保存关掉，只读不写。
+（测试里就是这么断言的：先存一份草稿，打开分享链接，等过防抖时间，草稿仍在。）

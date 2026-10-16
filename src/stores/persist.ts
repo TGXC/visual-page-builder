@@ -1,3 +1,4 @@
+import { normalizeSchema } from '@/core/schema'
 import type { FormSchema } from '@/core/types'
 
 /** 持久化协议：键名带版本号，读档时也按版本号拒绝旧数据。 */
@@ -16,8 +17,8 @@ function storage(): Storage | null {
 }
 
 /**
- * 读档：只做「坏数据不进 store」这一件事，真正的字段收敛留给 M6 的 normalizeSchema。
- * 返回 null 一律表示「当作没有存档」。
+ * 读档：坏数据一律当作没有存档，能修的就交给 normalizeSchema 修（补字段、重排 order、
+ * 断开孤儿父级）。返回 null 表示「当作没有存档」。
  */
 export function loadSchema(): FormSchema | null {
   const store = storage()
@@ -27,11 +28,7 @@ export function loadSchema(): FormSchema | null {
   if (!raw) return null
 
   try {
-    const parsed = JSON.parse(raw) as Partial<FormSchema> | null
-    if (!parsed || typeof parsed !== 'object') return null
-    if (parsed.version !== 1) return null
-    if (!Array.isArray(parsed.fields)) return null
-    return parsed as FormSchema
+    return normalizeSchema(JSON.parse(raw))
   } catch {
     return null
   }
