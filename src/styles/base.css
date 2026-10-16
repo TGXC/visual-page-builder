@@ -212,3 +212,251 @@ body {
 .fb-button--primary:hover {
   filter: brightness(1.06);
 }
+
+/* ---------- 编辑器外壳 ---------- */
+
+.fb-editor {
+  position: relative;
+  display: grid;
+  flex: 1;
+  grid-template-columns: 200px minmax(0, 1fr) 260px;
+  gap: var(--fb-space-lg);
+  align-items: start;
+  width: 100%;
+  max-width: 1180px;
+}
+
+.fb-editor__canvas {
+  max-height: calc(100vh - 160px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.fb-editor__status {
+  margin: var(--fb-space-sm) 0 0;
+  font-size: 12px;
+  color: var(--fb-text-weak);
+  text-align: right;
+}
+
+/* 画布只做结构编辑：控件本体不接指针事件，点哪儿都是选中/拖拽整个字段 */
+.fb-canvas .fb-field__body {
+  pointer-events: none;
+}
+
+.fb-canvas__fields {
+  min-height: 80px;
+}
+
+/* ---------- 组件面板 ---------- */
+
+.fb-palette,
+.fb-prop {
+  position: sticky;
+  top: 72px;
+  padding: var(--fb-space);
+  background: var(--fb-surface);
+  border: 1px solid var(--fb-border);
+  border-radius: var(--fb-radius);
+}
+
+.fb-palette__title,
+.fb-prop__title {
+  margin: 0 0 var(--fb-space-sm);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fb-palette__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.fb-palette__item {
+  display: flex;
+  gap: var(--fb-space-sm);
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: grab;
+  background: var(--fb-bg);
+  border: 1px solid transparent;
+  border-radius: var(--fb-radius-sm);
+  user-select: none;
+  touch-action: none;
+}
+
+.fb-palette__item:hover {
+  border-color: var(--fb-primary);
+  background: var(--fb-primary-weak);
+}
+
+.fb-palette__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fb-primary);
+  background: var(--fb-surface);
+  border-radius: var(--fb-radius-sm);
+}
+
+.fb-palette__hint {
+  margin: var(--fb-space-sm) 0 0;
+  font-size: 12px;
+  color: var(--fb-text-weak);
+}
+
+/* ---------- 选中、工具条、落点、拖拽影子 ---------- */
+
+.fb-field {
+  position: relative;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--fb-radius-sm);
+  cursor: grab;
+  touch-action: none;
+}
+
+.fb-field:hover {
+  border-color: var(--fb-border);
+}
+
+.fb-field--selected {
+  border-color: var(--fb-primary);
+  box-shadow: var(--fb-ring);
+}
+
+.fb-field--dragging {
+  opacity: 0.4;
+}
+
+.fb-field__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fb-space-sm);
+}
+
+.fb-field__actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.fb-field:hover .fb-field__actions,
+.fb-field--selected .fb-field__actions {
+  opacity: 1;
+}
+
+.fb-field__action {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--fb-text-weak);
+  cursor: pointer;
+  background: var(--fb-surface);
+  border: 1px solid var(--fb-border);
+  border-radius: var(--fb-radius-sm);
+}
+
+.fb-field__action:hover {
+  color: var(--fb-text);
+  border-color: var(--fb-text-weak);
+}
+
+.fb-drop-indicator {
+  height: 2px;
+  margin: 2px 0;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+.fb-drop-indicator--active {
+  background: var(--fb-primary);
+  opacity: 1;
+}
+
+.fb-drag-ghost {
+  position: absolute;
+  z-index: 20;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #fff;
+  pointer-events: none;
+  background: var(--fb-primary);
+  border-radius: var(--fb-radius-sm);
+  box-shadow: var(--fb-shadow);
+}
+
+/* ---------- 属性面板 ---------- */
+
+.fb-prop__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fb-text-weak);
+}
+
+.fb-prop__type {
+  margin: 0 0 var(--fb-space-sm);
+  font-size: 12px;
+  color: var(--fb-text-weak);
+}
+
+.fb-prop__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fb-space-sm);
+}
+
+.fb-prop__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fb-prop__name {
+  font-size: 12px;
+  color: var(--fb-text-weak);
+}
+
+.fb-prop__input,
+.fb-prop__textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: var(--fb-surface);
+  border: 1px solid var(--fb-border);
+  border-radius: var(--fb-radius-sm);
+  outline: none;
+}
+
+.fb-prop__input:focus,
+.fb-prop__textarea:focus {
+  border-color: var(--fb-primary);
+  box-shadow: var(--fb-ring);
+}
+
+.fb-prop__textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.fb-prop__switch {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--fb-primary);
+}
+

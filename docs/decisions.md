@@ -1,0 +1,90 @@
+# 架构取舍记录
+
+按里程碑顺序追加。每条都写清「选了什么」和「为什么不选另一个」——
+面试里被追问「为什么这么设计」时，答案在这里，不在代码注释里。
+
+## D1 扁平的 `fields[]` + `parentId`，而不是嵌套树
+
+选扁平数组：按 id 查字段 O(1)、跨容器拖动只改 `parentId` 和 `order` 两个数字、
+一个补丁只影响一条记录。
+
+代价要说清楚：层级到三四层、或者出现自由布局时，嵌套树更自然。这个项目只有
+一层分组（`group`），所以扁平是划算的。
+
+## D2 结构变更只有一种表达：`Patch`
+
+insert / remove / update / move 四种补丁，`applyPatch` 是纯函数、`invertPatch` 直接
+给出逆补丁。撤销重做因此不需要「保存整个 schema 的快照」：
+
+- 200 个字段的快照约 100KB，一条补丁不到 500B；
+- 100 步历史：快照方案约 10MB，补丁方案约 50KB（差 200 倍）。
+
+## D3 `applyPatch` 之后统一 `normalizeFieldOrder`（M1 实测出来的缺陷）
+
+最初按 PLAN §7 实现：insert 把新字段追加到数组末尾。结果「删除中间字段 → 撤销」
+之后数组变成 `[a, c, b]`——`order` 值是对的，但**同一逻辑状态序列化成了不同的 JSON**，
+逐字节快照比对直接失败。
+
+修法：`tree.ts` 提供 `flattenTree` / `normalizeFieldOrder`（树前序 + 孤儿字段按
+order、id 兜底排到末尾），`applyPatch` 在返回前统一规范化一次。
+
+因为：同一逻辑状态必须序列化成同一份 JSON，否则撤销后的等值判断、localStorage 的
+反复重写、导出文件的 diff 全都会变得不可预测。
+
+## D4 拖拽只在「放手」时提交一个补丁，不产生中间态
+
+PLAN §8 建议「Escape 时用逆补丁取消」。实测里更简单的做法是：拖动过程完全不碰
+schema，只在 `pointerup` 时按落点提交一个 `move` / `insert`。
+
+好处：Escape 只需要清空本地状态，天然安全；拖动时也不会往历史栈里塞几十条记录。
+代价：拖动过程中画布不反映「已移动」，只有落点指示线——这正是主流编辑器的手感。
+
+## D5 用 window 监听指针事件，而不是 `setPointerCapture`（偏离 PLAN §8）
+
+PLAN 把 `setPointerCapture` 列为四件必做之一。实现时改成在 `pointerdown` 时给
+window 挂 `pointermove / pointerup / pointercancel / keydown / blur`。
+
+因为：①事件委托到 window 后，字段在拖动中被重渲染也不会丢监听；
+②jsdom 没有 `setPointerCapture`，用它写出来的逻辑在本项目的测试环境里无法验证，
+而拖拽恰恰是最需要测试的部分；③`blur` 兜底解决了「鼠标在窗口外松手」导致状态卡住
+的问题（`setPointerCapture` 同样会丢）。
+
+代价：指针移出画布仍然一路跟随（对拖拽排序来说反而是想要的行为）。
+
+## D6 属性控件协议多一个 `options`（偏离 PLAN §5）
+
+PLAN §5 的 `PropControl` 是 `text|textarea|number|switch|color|select`。`select`
+字段的 `options` 本身是 `{label,value}[]`，用 text/textarea 都表达不了，所以加了一个
+`options` 控件：面板里用「每行一条 `label=value`」的纯文本编辑，可粘贴。
+
+因为：字段的全部知识都应该写在字段描述对象里，面板里不该出现 `if (type === 'select')`。
+
+## D7 加字段不改组件
+
+组件面板、属性面板、渲染器都只认注册表：面板遍历 `listDescriptors()`，属性面板遍历
+`propSchema`，渲染器拿 `descriptor.component`。M7 要补到 11 类字段，验收方式就是
+「加一个描述对象 + 一个哑组件」，不碰任何既有组件。
+
+## D8 编辑态画布的控件不接指针事件
+
+`.fb-canvas .fb-field__body { pointer-events: none }`：画布只做结构编辑，点控件任何
+位置都落到整个字段上（选中 / 拖拽）。填值在预览页。
+
+配合「整块可按下 + 5px 阈值」的判定：按下先选中，位移超过 5px 才变成拖拽，所以不需要
+额外的拖拽手柄。
+
+## D9 自动保存：版本化 key + 300ms 防抖
+
+key 是 `form-builder:v1:schema`，读档时 `version !== 1` 直接当没有存档。
+写盘防抖 300ms，一次拖拽只写一次盘，连续输入也不会每敲一个字符写一次。
+
+配额满或隐私模式下 `setItem` 抛错一律静默：存不下不是致命错误，不该打断编辑。
+
+## D10 拖拽数学用假 DOM 测，不用浏览器
+
+`toCanvasPoint` / `findDropIndex` / `edgeScrollDelta` / `visualIndexToOrder` 都是纯函数，
+输入只有矩形和坐标，所以测试里用普通对象当替身（`{ getBoundingClientRect }`）就够，
+不需要为了数学去搭真 DOM。
+
+组件层再用 `vi.spyOn(Element.prototype, 'getBoundingClientRect')` 给 jsdom 里的字段
+排一条竖线，就能跑完整的「按下 → 移动 → 放手」链路。

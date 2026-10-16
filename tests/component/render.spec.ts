@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import '@/fields'
 import App from '@/App.vue'
@@ -52,11 +53,16 @@ describe('双渲染路径：同一份 schema', () => {
 
 describe('两条路由：/ 与 /preview', () => {
   it('同一份 schema 在两个页面都渲染正确（M2 验收）', async () => {
+    // 编辑页现在是完整的编辑器（面板 + store），所以要给一个干净的 pinia 与空存档
+    localStorage.clear()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push('/')
     await router.isReady()
 
-    const wrapper = mount(App, { global: { plugins: [router] } })
+    const wrapper = mount(App, { global: { plugins: [pinia, router] } })
     expect(labelsOf(wrapper)).toEqual(['姓名', '年龄', '所在城市'])
     expect(wrapper.find('button[type="submit"]').exists()).toBe(false)
 

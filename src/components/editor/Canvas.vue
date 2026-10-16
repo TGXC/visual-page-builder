@@ -1,16 +1,40 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import FieldControl from '@/components/shared/FieldControl.vue'
+import DropIndicator from './DropIndicator.vue'
+import FieldWrapper from './FieldWrapper.vue'
 import { childrenOf } from '@/core/tree'
-import type { FormSchema } from '@/core/types'
+import type { FieldNode, FormSchema } from '@/core/types'
 
 /**
  * 编辑态画布：只把 schema 渲染出来，不绑值、不校验。
- * M3 会在这里包一层 FieldWrapper（选中 / 拖拽 / 工具条）并接上 store。
+ * 选中/拖拽/工具条在 FieldWrapper 里，落点指示线由这里的 dropIndex 决定。
  */
-const props = defineProps<{ schema: FormSchema }>()
+const props = defineProps<{
+  schema: FormSchema
+  selectedIds?: string[]
+  draggingId?: string | null
+  /** 正在拖拽（过了阈值）时才显示指示线 */
+  active?: boolean
+  dropIndex?: number | null
+}>()
+
+const emit = defineEmits<{
+  select: [id: string]
+  dragField: [id: string, event: PointerEvent]
+  duplicate: [id: string]
+  remove: [id: string]
+}>()
 
 const fields = computed(() => childrenOf(props.schema.fields, null))
+const selectedSet = computed(() => new Set(props.selectedIds ?? []))
+
+function isSelected(field: FieldNode): boolean {
+  return selectedSet.value.has(field.id)
+}
+
+function indicatorActive(index: number): boolean {
+  return Boolean(props.active) && props.dropIndex === index
+}
 </script>
 
 <template>
@@ -21,10 +45,19 @@ const fields = computed(() => childrenOf(props.schema.fields, null))
 
       <div v-if="fields.length === 0" class="fb-empty">暂无字段</div>
       <div v-else class="fb-canvas__fields">
-        <div v-for="field in fields" :key="field.id" class="fb-field">
-          <label class="fb-field__label">{{ field.label }}</label>
-          <FieldControl :field="field" />
-        </div>
+        <template v-for="(field, index) in fields" :key="field.id">
+          <DropIndicator :active="indicatorActive(index)" />
+          <FieldWrapper
+            :field="field"
+            :selected="isSelected(field)"
+            :dragging="draggingId === field.id"
+            @select="emit('select', $event)"
+            @drag-start="emit('dragField', field.id, $event)"
+            @duplicate="emit('duplicate', $event)"
+            @remove="emit('remove', $event)"
+          />
+        </template>
+        <DropIndicator :active="indicatorActive(fields.length)" />
       </div>
     </div>
   </div>
