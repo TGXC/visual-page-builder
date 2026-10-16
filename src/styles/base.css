@@ -1,0 +1,214 @@
+/* 基础样式与两条渲染路径共用的呈现层：编辑器与预览页类名一致，视觉自然一致。 */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--fb-font);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fb-text);
+  background: var(--fb-bg);
+}
+
+/* ---------- 应用外壳 ---------- */
+
+.fb-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.fb-app__bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--fb-space-lg);
+  height: 56px;
+  padding: 0 var(--fb-space-lg);
+  background: var(--fb-surface);
+  border-bottom: 1px solid var(--fb-border);
+}
+
+.fb-app__brand {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.fb-app__nav {
+  display: flex;
+  gap: var(--fb-space-sm);
+}
+
+.fb-app__nav a {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--fb-text-weak);
+  text-decoration: none;
+  border-radius: var(--fb-radius-sm);
+}
+
+.fb-app__nav a:hover {
+  color: var(--fb-text);
+  background: var(--fb-bg);
+}
+
+.fb-app__nav a.router-link-active {
+  font-weight: 600;
+  color: var(--fb-primary);
+  background: var(--fb-primary-weak);
+}
+
+.fb-view {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  padding: var(--fb-space-xl) var(--fb-space-lg);
+}
+
+/* ---------- 页面（画布 / 表单） ---------- */
+
+.fb-canvas,
+.fb-form {
+  width: 100%;
+  max-width: 640px;
+  padding: var(--fb-space-xl);
+  background: var(--fb-surface);
+  border-radius: var(--fb-radius-lg);
+  box-shadow: var(--fb-shadow);
+}
+
+.fb-canvas__title,
+.fb-form__title {
+  margin: 0 0 var(--fb-space-xs);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.fb-canvas__desc,
+.fb-form__desc {
+  margin: 0 0 var(--fb-space-lg);
+  font-size: 13px;
+  color: var(--fb-text-weak);
+}
+
+.fb-canvas__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fb-space);
+}
+
+/* ---------- 字段 ---------- */
+
+.fb-field {
+  display: block;
+}
+
+.fb-form .fb-field {
+  margin-bottom: var(--fb-space);
+}
+
+.fb-field__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fb-empty {
+  padding: var(--fb-space-xl);
+  font-size: 13px;
+  color: var(--fb-text-weak);
+  text-align: center;
+  border: 1px dashed var(--fb-border);
+  border-radius: var(--fb-radius);
+}
+
+/* ---------- 控件 ---------- */
+
+.fb-input {
+  position: relative;
+  display: flex;
+}
+
+.fb-input__control,
+.fb-select__control {
+  width: 100%;
+  height: var(--fb-control-height);
+  padding: 0 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--fb-surface);
+  border: 1px solid var(--fb-border);
+  border-radius: var(--fb-radius-sm);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fb-input__control:focus,
+.fb-select__control:focus {
+  border-color: var(--fb-primary);
+  box-shadow: var(--fb-ring);
+}
+
+.fb-input__control:disabled,
+.fb-select__control:disabled {
+  background: var(--fb-bg);
+  cursor: not-allowed;
+}
+
+.fb-input__clear {
+  position: absolute;
+  top: 50%;
+  right: var(--fb-space-sm);
+  padding: 2px 6px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--fb-text-weak);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: var(--fb-space-xs);
+  transform: translateY(-50%);
+}
+
+.fb-input__clear:hover {
+  color: var(--fb-text);
+  background: var(--fb-bg);
+}
+
+/* ---------- 按钮 ---------- */
+
+.fb-form__actions {
+  margin-top: var(--fb-space-lg);
+}
+
+.fb-button {
+  height: var(--fb-control-height);
+  padding: 0 18px;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--fb-radius-sm);
+}
+
+.fb-button--primary {
+  color: #fff;
+  background: var(--fb-primary);
+}
+
+.fb-button--primary:hover {
+  filter: brightness(1.06);
+}
