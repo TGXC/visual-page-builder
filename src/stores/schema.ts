@@ -1,12 +1,11 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { createId } from '@/core/id'
-import { applyPatch } from '@/core/patch'
 import { buildTree, nextOrder } from '@/core/tree'
 import { getDescriptor } from '@/fields'
-import { demoSchema } from '@/data/demoSchema'
-import { PERSIST_DELAY, loadSchema, saveSchema } from './persist'
-import type { FieldNode, FieldType, FormSchema, MutableFieldKey } from '@/core/types'
+import { PERSIST_DELAY, saveSchema } from './persist'
+import { useHistoryStore } from './history'
+import type { FieldNode, FieldType, FormSchema, MutableFieldKey, Patch } from '@/core/types'
 
 /**
  * props/rules 走 JSON 深拷贝。
@@ -21,13 +20,21 @@ function cloneField(field: FieldNode): FieldNode {
   return { ...field, props: clone(field.props), rules: clone(field.rules) }
 }
 
-function cloneSchema(schema: FormSchema): FormSchema {
-  return { ...schema, fields: schema.fields.map(cloneField), settings: { ...schema.settings } }
+const MUTABLE_KEYS: MutableFieldKey[] = ['name', 'label', 'props', 'rules', 'visibleWhen']
+
+const KEY_LABELS: Record<MutableFieldKey, string> = {
+  name: '字段名',
+  label: '标签',
+  props: '属性',
+  rules: '校验规则',
+  visibleWhen: '显示条件',
 }
 
 export const useSchemaStore = defineStore('schema', () => {
-  // 冷启动：有存档用存档，否则用示例 schema（深拷贝，别让编辑器改到模块常量）
-  const schema = ref<FormSchema>(cloneSchema(loadSchema() ?? demoSchema))
+  // 当前 schema 住在 history store 里：撤销/重做/跳转都在改那一份，这里只是读它
+  const history = useHistoryStore()
+  const schema = computed(() => history.base)
+
   const selectedIds = ref<string[]>([])
 
   const fieldById = computed(() => new Map(schema.value.fields.map(field => [field.id, field])))
@@ -35,7 +42,7 @@ export const useSchemaStore = defineStore('schema', () => {
   const selectedField = computed(() => (selectedId.value ? (fieldById.value.get(selectedId.value) ?? null) : null))
   const tree = computed(() => buildTree(schema.value.fields))
 
-  // 自动保存：所有变更都收敛到 `schema.value = ...`，所以监听一处就够
+  // 自动保存：所有变更都落到 history.base 上，所以监听一处就够
   let timer: ReturnType<typeof setTimeout> | null = null
   function scheduleSave(): void {
     if (timer !== null) clearTimeout(timer)
@@ -45,6 +52,22 @@ export const useSchemaStore = defineStore('schema', () => {
     }, PERSIST_DELAY)
   }
   watch(schema, () => scheduleSave(), { deep: true })
+
+  // 撤销/删除之后选中的字段可能已经不存在了。sync 让调用方不用等 nextTick 就能断言。
+  watch(
+    schema,
+    next => {
+      if (selectedIds.value.length === 0) return
+      const alive = new Set(next.fields.map(field => field.id))
+      selectedIds.value = selectedIds.value.filter(id => alive.has(id))
+    },
+    { flush: 'sync' },
+  )
+
+  /** 结构性变更的唯一出口：记一条历史 + 把补丁贴上 */
+  function commit(label: string, patch: Patch, mergeKey?: string): void {
+    history.commit({ label, patch, mergeKey, at: Date.now() })
+  }
 
   /** 字段名自动去重：拖十个单行文本也不会出现两个 name */
   function uniqueName(type: FieldType): string {
@@ -73,7 +96,7 @@ export const useSchemaStore = defineStore('schema', () => {
       rules: clone(descriptor.defaultRules ?? []),
       visibleWhen: null,
     }
-    schema.value = applyPatch(schema.value, { op: 'insert', field })
+    commit(`新增${descriptor.label}`, { op: 'insert', field })
     select(id)
     return id
   }
@@ -81,8 +104,7 @@ export const useSchemaStore = defineStore('schema', () => {
   function removeField(id: string): void {
     const field = schema.value.fields.find(item => item.id === id)
     if (!field) return
-    schema.value = applyPatch(schema.value, { op: 'remove', field })
-    selectedIds.value = selectedIds.value.filter(selected => selected !== id)
+    commit(`删除${field.label}`, { op: 'remove', field })
   }
 
   /** 只允许改 MutableFieldKey：id/parentId/order 走各自的专用动作。 */
@@ -91,13 +113,37 @@ export const useSchemaStore = defineStore('schema', () => {
     if (!field) return
 
     const before: Partial<Pick<FieldNode, MutableFieldKey>> = {}
-    if ('name' in after) before.name = field.name
-    if ('label' in after) before.label = field.label
-    if ('props' in after) before.props = field.props
-    if ('rules' in after) before.rules = field.rules
-    if ('visibleWhen' in after) before.visibleWhen = field.visibleWhen
+    const next: Partial<Pick<FieldNode, MutableFieldKey>> = {}
+    const keys: MutableFieldKey[] = []
 
-    schema.value = applyPatch(schema.value, { op: 'update', id, before, after })
+    for (const key of MUTABLE_KEYS) {
+      if (!(key in after)) continue
+      keys.push(key)
+      // props/rules 整体替换，并且深拷贝：历史里的补丁不能跟着外部对象一起被改
+      if (key === 'props') {
+        before.props = clone(field.props)
+        next.props = clone(after.props ?? {})
+      } else if (key === 'rules') {
+        before.rules = clone(field.rules)
+        next.rules = clone(after.rules ?? [])
+      } else if (key === 'visibleWhen') {
+        before.visibleWhen = field.visibleWhen
+        next.visibleWhen = after.visibleWhen ?? null
+      } else if (key === 'name') {
+        before.name = field.name
+        next.name = after.name ?? field.name
+      } else {
+        before.label = field.label
+        next.label = after.label ?? field.label
+      }
+    }
+    if (keys.length === 0) return
+
+    commit(
+      `修改${keys.map(key => KEY_LABELS[key]).join('、')}`,
+      { op: 'update', id, before, after: next },
+      `update:${id}:${[...keys].sort().join(',')}`,
+    )
   }
 
   function moveField(id: string, parentId: string | null, order: number): void {
@@ -106,7 +152,7 @@ export const useSchemaStore = defineStore('schema', () => {
     // 幂等：原地放下不产生新 schema，否则历史里会多一条什么都没变的记录
     if (field.parentId === parentId && field.order === order) return
 
-    schema.value = applyPatch(schema.value, {
+    commit('移动字段', {
       op: 'move',
       id,
       before: { parentId: field.parentId, order: field.order },
@@ -125,13 +171,14 @@ export const useSchemaStore = defineStore('schema', () => {
       name: uniqueName(source.type),
       order: source.order + 1,
     }
-    schema.value = applyPatch(schema.value, { op: 'insert', field: copy })
+    commit(`复制${source.label}`, { op: 'insert', field: copy })
     select(copyId)
     return copyId
   }
 
+  /** 导入 JSON / 新建表单：换一条时间线 */
   function setSchema(next: FormSchema): void {
-    schema.value = cloneSchema(next)
+    history.reset(next)
     selectedIds.value = []
   }
 

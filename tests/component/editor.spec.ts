@@ -260,3 +260,66 @@ describe('M3 验收：拖入 10 个字段、任意排序、刷新后顺序保留
     expect(JSON.stringify(store().schema)).toBe(beforeJson)
   })
 })
+
+/** 键盘事件：Ctrl/Cmd+Z 撤销、Ctrl+Shift+Z 重做 */
+function pressKey(key: string, options: KeyboardEventInit = {}): void {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }))
+}
+
+describe('历史记录面板', () => {
+  it('列出「初始状态」与每一步操作，当前步有高亮', async () => {
+    expect(wrapper.findAll('.fb-history__item')).toHaveLength(1)
+    expect(wrapper.get('.fb-history__item').text()).toBe('初始状态')
+
+    await drag(fieldEls()[0], [0, 10], [400, 200])
+
+    const items = wrapper.findAll('.fb-history__item')
+    expect(items).toHaveLength(2)
+    expect(items[0].text()).toBe('初始状态')
+    expect(items[1].text()).toBe('移动字段')
+    expect(items[1].classes()).toContain('fb-history__item--current')
+  })
+
+  it('点击历史项就跳回那一步', async () => {
+    const start = JSON.stringify(store().schema)
+    await drag(fieldEls()[0], [0, 10], [400, 200])
+    expect(fieldNames()).toEqual(['age', 'city', 'name'])
+
+    await wrapper.findAll('.fb-history__item')[0].trigger('click')
+    await nextTick()
+
+    expect(JSON.stringify(store().schema)).toBe(start)
+    expect(wrapper.findAll('.fb-history__item')[0].classes()).toContain('fb-history__item--current')
+  })
+
+  it('Ctrl+Z 撤销、Ctrl+Shift+Z 重做', async () => {
+    await drag(fieldEls()[0], [0, 10], [400, 200])
+    const moved = fieldNames()
+
+    pressKey('z', { ctrlKey: true })
+    await nextTick()
+    expect(fieldNames()).toEqual(['name', 'age', 'city'])
+
+    pressKey('Z', { ctrlKey: true, shiftKey: true })
+    await nextTick()
+    expect(fieldNames()).toEqual(moved)
+  })
+})
+
+describe('M4 验收：连续输入合并成一步', () => {
+  it('两次快速输入只留一条历史，撤销一次即回到原值', async () => {
+    await press(fieldEls()[0], 0, 10)
+    const input = wrapper.get('.fb-prop__label-input')
+
+    await input.setValue('张')
+    vi.advanceTimersByTime(80)
+    await input.setValue('张三')
+
+    expect(wrapper.findAll('.fb-history__item').map(item => item.text())).toEqual(['初始状态', '修改标签'])
+    expect(store().fieldById.get(store().selectedId!)!.label).toBe('张三')
+
+    pressKey('z', { ctrlKey: true })
+    await nextTick()
+    expect(store().schema.fields[0].label).toBe('姓名')
+  })
+})

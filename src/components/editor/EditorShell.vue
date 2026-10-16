@@ -2,16 +2,19 @@
 import { computed, ref } from 'vue'
 import Canvas from './Canvas.vue'
 import ComponentPalette from './ComponentPalette.vue'
+import HistoryPanel from './HistoryPanel.vue'
 import PropPanel from './PropPanel.vue'
 import { useDragField } from '@/composables/useDragField'
 import { useKeyboard } from '@/composables/useKeyboard'
 import { useSortable } from '@/composables/useSortable'
+import { useHistoryStore } from '@/stores/history'
 import { useSchemaStore } from '@/stores/schema'
 import type { DragPayload, DragTarget } from '@/composables/useDragField'
 import type { FieldType } from '@/core/types'
 
 /** 编辑器外壳：唯一把 store、拖拽、快捷键接在一起的地方。 */
 const store = useSchemaStore()
+const history = useHistoryStore()
 const { drop } = useSortable()
 const canvasRef = ref<HTMLElement | null>(null)
 
@@ -28,6 +31,8 @@ useKeyboard({
   onDuplicate: () => {
     if (store.selectedId) store.duplicateField(store.selectedId)
   },
+  onUndo: () => history.undo(),
+  onRedo: () => history.redo(),
 })
 
 function onPaletteDragStart(payload: { type: FieldType; label: string; event: PointerEvent }): void {
@@ -87,7 +92,10 @@ const fieldCount = computed(() => store.schema.fields.length)
       <p class="fb-editor__status">共 {{ fieldCount }} 个字段</p>
     </div>
 
-    <PropPanel :field="store.selectedField" @update="store.updateField" />
+    <div class="fb-editor__side">
+      <PropPanel :field="store.selectedField" @update="store.updateField" />
+      <HistoryPanel :labels="history.labels" :index="history.position" @jump="history.jumpTo" />
+    </div>
 
     <div v-if="ghost" class="fb-drag-ghost" :style="{ left: `${ghost.x}px`, top: `${ghost.y}px` }">
       {{ ghost.label }}

@@ -88,3 +88,31 @@ key 是 `form-builder:v1:schema`，读档时 `version !== 1` 直接当没有存�
 
 组件层再用 `vi.spyOn(Element.prototype, 'getBoundingClientRect')` 给 jsdom 里的字段
 排一条竖线，就能跑完整的「按下 → 移动 → 放手」链路。
+
+## D11 历史存「补丁 + 合并窗口」，输入不按字符记
+
+`history` store 存的是 `{label, patch, mergeKey, at}`，`base` 只保存当前 schema。
+`mergeKey + 400ms` 决定连续输入要不要合并：同一字段同一批属性的连续 `update`
+合并成一条，`before` 保留最早的值、`after` 取最新的；结构类补丁（insert/remove/move）
+一律不合并——把两步插字段合成一步撤销会很怪。
+
+因为：不合并的话在属性面板里打「张三丰」三个字要按三次 Ctrl+Z，而且历史面板会被
+字符级噪音塞满。测试里 100 步历史的实际内存只有几十 KB。
+
+## D12 撤销/重做是全局快捷键，删除/复制不是
+
+`Ctrl/Cmd+Z`、`Ctrl/Cmd+Shift+Z`（和 `Ctrl+Y`）在焦点位于输入框时也生效——撤销是
+应用级动作，用户不该先点空白处才能撤销。`Delete` 和 `Ctrl+D` 仍然被输入框保护
+（在输入框里 Delete 是删字，Ctrl+D 是浏览器书签）。
+
+## D13 撤销后失效的选中会被同步清掉
+
+`watch(schema, ..., { flush: 'sync' })`：撤销或删除之后，如果选中的字段已经不在
+schema 里就清空选中。用 `sync` 而不是默认的 `pre`，是为了让「撤销 → 断言选中为空」
+这种同步逻辑不必依赖 nextTick。
+
+## D14 真实浏览器验证的缺口（诚实记录）
+
+拖动排序、指针捕获这些行为在本机只能用 jsdom + 合成事件验证（opencli 的浏览器桥
+扩展没连上、本机也没装 Chrome/Edge），所以「真实鼠标拖拽」这一步没有自动化证据，
+靠 `npm run dev` 手动确认。这一点写进 README，不假装它是测过的。

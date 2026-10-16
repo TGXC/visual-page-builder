@@ -239,6 +239,22 @@ body {
   text-align: right;
 }
 
+/* 右列：属性面板 + 历史记录，整列一起粘住，避免两个 sticky 互相盖住 */
+.fb-editor__side {
+  position: sticky;
+  top: 72px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fb-space);
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+}
+
+.fb-editor__side .fb-prop,
+.fb-editor__side .fb-history {
+  position: static;
+}
+
 /* 画布只做结构编辑：控件本体不接指针事件，点哪儿都是选中/拖拽整个字段 */
 .fb-canvas .fb-field__body {
   pointer-events: none;
@@ -251,7 +267,8 @@ body {
 /* ---------- 组件面板 ---------- */
 
 .fb-palette,
-.fb-prop {
+.fb-prop,
+.fb-history {
   position: sticky;
   top: 72px;
   padding: var(--fb-space);
@@ -261,7 +278,8 @@ body {
 }
 
 .fb-palette__title,
-.fb-prop__title {
+.fb-prop__title,
+.fb-history__title {
   margin: 0 0 var(--fb-space-sm);
   font-size: 13px;
   font-weight: 600;
@@ -458,5 +476,37 @@ body {
   width: 16px;
   height: 16px;
   accent-color: var(--fb-primary);
+}
+
+/* ---------- 历史记录 ---------- */
+
+.fb-history__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  padding: 0;
+  margin: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.fb-history__item {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--fb-text-weak);
+  cursor: pointer;
+  border-radius: var(--fb-radius-sm);
+}
+
+.fb-history__item:hover {
+  color: var(--fb-text);
+  background: var(--fb-bg);
+}
+
+.fb-history__item--current {
+  font-weight: 600;
+  color: var(--fb-primary);
+  background: var(--fb-primary-weak);
 }
 
