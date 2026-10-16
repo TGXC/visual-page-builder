@@ -18,7 +18,7 @@ export function encodeSchema(schema: FormSchema): string {
 /** 解不开 / 内容不是表单都返回 null，调用方显示「链接已损坏」 */
 export function decodeSchema(encoded: string): FormSchema | null {
   if (!encoded) return null
-  let json: string | null = null
+  let json: string | null
   try {
     json = decompressFromEncodedURIComponent(encoded)
   } catch {

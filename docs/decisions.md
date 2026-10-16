@@ -177,3 +177,68 @@ M1 的 `visibleFields` 只看字段自己的 `visibleWhen`，于是「宠物信�
 把访客自己 localStorage 里的草稿覆盖掉——打开一条别人的链接不该有这种副作用。
 于是 `setSchema(next, { persist: false })` 把这家 store 的自动保存关掉，只读不写。
 （测试里就是这么断言的：先存一份草稿，打开分享链接，等过防抖时间，草稿仍在。）
+
+## D22 描述符新增 `hasValue`：分隔线/分组不是「有值的字段」
+
+11 类字段里有两类根本不产出值：`divider`（分隔线）和 `group`（容器）。如果没有标记，
+它们会以 `undefined` 的形态出现在提交结果里（`{address: '', divider1: undefined}`），
+下游分不清「用户没填」和「这个字段本来就没有值」。
+
+所以 `ComponentDescriptor` 加 `hasValue?: boolean`（缺省 `true`，只有这两类显式 `false`），
+`submit()` 跳过它们。这是相对 PLAN §5 的**第二处协议扩展**（第一处是 M2 的
+`PropControl: 'options'`），两处都补在这里而不是偷偷改代码。
+
+## D23 跨容器拖拽用几何判定：取包含指针的最深容器
+
+拖进分组最初是坏的：`measure()` 只用**源父级**（`state.parentId`）算插入位，
+所以指针明明在分组框里，落点却算在根层。改法是一步纯几何判断：
+
+1. 取画布内所有 `[data-container="true"]` 的字段元素，排除被拖字段自己与它的子孙
+   （否则能把分组拖进自己里面，直接造出一个环）；
+2. 用 `findContainer(指针, 命中列表)` 取**深度最大**的那个容器；
+3. 再在那一层里用 `findDropIndex` 数插入位，`visualIndexToOrder` 用 `movingId` 归一化
+   「自己占了一个位置」的偏移。
+
+都不命中就返回 `null`（根层），**不回退到源父级**：把字段从分组里拖到画布空白处，
+本来就该移出分组。`findContainer` 是纯函数，测试用假矩形就能覆盖「套两层时取最深」，
+组件层再测一条完整的「根层字段拖进分组后 `parentId` 变了、组内顺序按落点算」。
+
+## D24 嵌套渲染用「按文件名自引用」的递归组件
+
+编辑器是 `FieldList → FieldWrapper → FieldList`，运行态是
+`RuntimeFieldList → FieldRuntime / 自引用`，两个递归组件各管一条路径，控件仍然共用
+`FieldControl` + `components/shared/fields/*`。分组能无限套，而「编辑态和运行态吃同一份
+schema、同一批控件」这条 M2 的保证没有破。
+
+这里踩到一个真实的坑：`FieldList` 一开始忘了把整棵 `fields` 传给 `FieldWrapper`，
+`FieldWrapper` 的 `fields` 默认值是 `[]`，于是分组的子字段**整体消失**（画布上只剩
+分组本身和根层字段）。`group.spec.ts` 第一条断言就抓到了它——这也是为什么「同一份
+schema 在两条路径渲染出的标签序列一致」值得写成测试。
+
+## D25 Vue 模板里 `$event` 只是第一个参数（真实 bug 记录）
+
+四个转发点原来写的是 `@update:value="emit('update:value', $event[0], $event[1])"`。
+Vue 模板里的 `$event` 只代表 emit 的**第一个**参数，于是多参数事件的转发变成了
+「把字段名当字符串取下标」：`'name'` → `'n'`、`'age'` → `'a'`，runtime 的 `values`
+里出现了 `{n: 'a', a: 'g'}` 这种键，条件字段也因此不显示。
+
+修法：多参数事件一律用内联箭头转发（`@update:value="(name, value) => emit(...)"`）。
+教训是「哑组件 + 多参数 emit」这条链路必须有一条端到端断言（运行态 spec 里
+`expect(emitted()?.at(-1)).toEqual(['name', '张三'])` 就是它）。
+
+## D26 分层用 ESLint 规则守住，而不是靠自觉
+
+`src/core/**` 只放纯逻辑（不 import Vue、组件、store、字段注册表），这条承诺在
+`eslint.config.js` 里用 `no-restricted-imports` 强制：即使以后有人图方便在
+`validation.ts` 里 import 注册表，`npm run lint` 会直接失败。core 能被纯单测覆盖
+（98%+）、能脱离框架跑，靠的就是这条规则。
+
+## D27 性能数字来自 jsdom，不是浏览器（如实标注）
+
+测量脚本临时挂在 tests 里跑完即删（PLAN §14 允许临时测量代码）：200 字段挂载
+编辑态 117–215ms（首次含模块预热）、运行态 71–83ms；100 次 `addField` 合计 111ms
+（每次约 1.1ms）；拖拽每次命中的数学开销 0.01ms（60fps 的预算是 16.7ms/帧）；
+100 步历史的 `undoStack` JSON 仅 28.1KB。
+
+这些数字来自 jsdom + Node 24，**不是浏览器**。所以 README 里写的是「在 jsdom 里量的」
+而不是「浏览器里 60fps」，并把「真实鼠标拖拽的手感」列为没有自动化证据的缺口（D14）。

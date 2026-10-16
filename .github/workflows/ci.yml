@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 安装依赖（严格按 lockfile）
+        run: npm ci
+
+      - name: 代码检查
+        run: npm run lint
+
+      - name: 单元测试 + 覆盖率（core/ 阈值 90%）
+        run: npm run coverage
+
+      - name: 类型检查 + 生产构建
+        run: npm run build

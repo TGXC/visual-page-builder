@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import FieldRuntime from '@/components/runtime/FieldRuntime.vue'
-import { visibleFields } from '@/core/validation'
+import RuntimeFieldList from '@/components/runtime/RuntimeFieldList.vue'
+import { visibleTree } from '@/core/validation'
 import type { ErrorMap, FormSchema, FormValues } from '@/core/types'
 
 /**
  * 运行态渲染器：与 Canvas 吃同一份 schema，区别是这里会绑值、校验、提交。
  * 它是哑组件——值由外面传进来（runtime store），提交也只是通知外面，自己不碰 store。
+ * 可见性交给 visibleTree：分组隐藏时整棵子树都不渲染，子字段跟着分组走。
  */
 const props = defineProps<{ schema: FormSchema; values?: FormValues; errors?: ErrorMap }>()
 
@@ -16,9 +17,10 @@ const emit = defineEmits<{
 }>()
 
 const formValues = computed<FormValues>(() => props.values ?? {})
+const errorMap = computed<ErrorMap>(() => props.errors ?? {})
 
 /** 只显示可见字段：条件不满足的、以及隐藏分组里的字段都不渲染 */
-const fields = computed(() => visibleFields(props.schema, formValues.value))
+const nodes = computed(() => visibleTree(props.schema, formValues.value))
 </script>
 
 <template>
@@ -26,20 +28,18 @@ const fields = computed(() => visibleFields(props.schema, formValues.value))
     <h1 class="fb-form__title">{{ schema.name }}</h1>
     <p v-if="schema.description" class="fb-form__desc">{{ schema.description }}</p>
 
-    <div v-if="fields.length === 0" class="fb-empty">这张表单还没有字段</div>
-    <template v-else>
-      <FieldRuntime
-        v-for="field in fields"
-        :key="field.id"
-        :field="field"
-        :value="formValues[field.name]"
-        :errors="errors?.[field.name]"
-        @update:value="emit('update:value', field.name, $event)"
-      />
-    </template>
+    <div v-if="nodes.length === 0" class="fb-empty">这张表单还没有字段</div>
+    <RuntimeFieldList
+      v-else
+      :nodes="nodes"
+      :values="formValues"
+      :errors="errorMap"
+      @update:value="(name, value) => emit('update:value', name, value)"
+    />
 
     <div class="fb-form__actions">
       <button class="fb-button fb-button--primary" type="submit">{{ schema.settings.submitText }}</button>
     </div>
   </form>
 </template>
+

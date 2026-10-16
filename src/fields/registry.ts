@@ -30,8 +30,13 @@ export interface ComponentDescriptor<P extends Record<string, unknown> = Record<
   label: string
   /** 组件面板里的图标代号（用内置 SVG，不引图标库） */
   icon: string
-  /** 容器字段（group）才可以接收子字段，M7 用 */
+  /** 容器字段（group）才可以接收子字段 */
   isContainer?: boolean
+  /**
+   * 是否产出值。divider / group 显式声明 false：
+   * 它们不该进入提交结果，也不该被当成待填字段。缺省为 true。
+   */
+  hasValue?: boolean
   defaultProps: P
   propSchema: PropSpec[]
   /** 拖入画布时预置的校验规则 */

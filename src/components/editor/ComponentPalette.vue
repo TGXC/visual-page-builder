@@ -12,8 +12,20 @@ const emit = defineEmits<{
 /** 面板内容完全来自注册表：加一类字段只要注册，不用改这里。 */
 const palette = listDescriptors()
 
-/** 不引图标库，用一两个字符当图标。 */
-const GLYPHS: Record<string, string> = { text: 'T', number: '#', select: '▾' }
+/** 不引图标库，用一两个字符当图标（按字段类型的 icon 名索引）。 */
+const GLYPHS: Record<string, string> = {
+  text: 'T',
+  textarea: '¶',
+  number: '#',
+  select: '▾',
+  radio: '◉',
+  checkbox: '☑',
+  switch: '◑',
+  date: '▦',
+  rating: '★',
+  divider: '—',
+  group: '▣',
+}
 const glyph = (icon: string): string => GLYPHS[icon] ?? '•'
 
 const pressedAt = ref<{ x: number; y: number } | null>(null)

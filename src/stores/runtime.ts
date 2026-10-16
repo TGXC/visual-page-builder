@@ -2,6 +2,8 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useSchemaStore } from './schema'
 import { validateField, visibleFields } from '@/core/validation'
+import { getDescriptor } from '@/fields/registry'
+import '@/fields'
 import type { ErrorMap, FieldNode, FormValues } from '@/core/types'
 
 /**
@@ -48,12 +50,16 @@ export const useRuntimeStore = defineStore('runtime', () => {
     return Object.keys(next).length === 0
   }
 
-  /** 校验通过就返回要提交的 FormValues（只有可见字段），否则返回 null */
+  /** 校验通过就返回要提交的 FormValues（只有可见、且真的产出值的字段），否则返回 null */
   function submit(): FormValues | null {
     submitted.value = null
     if (!validate()) return null
     const payload: FormValues = {}
-    for (const field of visible.value) payload[field.name] = values.value[field.name]
+    for (const field of visible.value) {
+      // 分隔线这类「不产出值」的字段不该出现在提交结果里
+      if (getDescriptor(field.type).hasValue === false) continue
+      payload[field.name] = values.value[field.name]
+    }
     submitted.value = payload
     return payload
   }

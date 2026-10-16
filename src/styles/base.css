@@ -144,7 +144,9 @@ body {
 }
 
 .fb-input__control,
-.fb-select__control {
+.fb-select__control,
+.fb-textarea__control,
+.fb-date__control {
   width: 100%;
   height: var(--fb-control-height);
   padding: 0 12px;
@@ -157,14 +159,25 @@ body {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.fb-textarea__control {
+  height: auto;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 .fb-input__control:focus,
-.fb-select__control:focus {
+.fb-select__control:focus,
+.fb-textarea__control:focus,
+.fb-date__control:focus {
   border-color: var(--fb-primary);
   box-shadow: var(--fb-ring);
 }
 
 .fb-input__control:disabled,
-.fb-select__control:disabled {
+.fb-select__control:disabled,
+.fb-textarea__control:disabled,
+.fb-date__control:disabled {
   background: var(--fb-bg);
   cursor: not-allowed;
 }
@@ -795,4 +808,148 @@ body {
   font-size: 12px;
   color: var(--fb-text-weak);
   text-align: center;
+}
+
+/* ---------- M7 补齐的字段类型 ---------- */
+
+/* 单选 / 多选：一组 label，横排由 --inline 控制 */
+.fb-radio,
+.fb-checkbox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fb-radio--inline,
+.fb-checkbox--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.fb-radio__item,
+.fb-checkbox__item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fb-radio__control,
+.fb-checkbox__control,
+.fb-switch__control {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--fb-primary);
+  cursor: pointer;
+}
+
+/* 开关：控件 + 文案一行 */
+.fb-switch {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fb-switch__control {
+  width: 17px;
+  height: 17px;
+}
+
+.fb-switch__text {
+  color: var(--fb-text-weak);
+}
+
+/* 评分：一组星星按钮，没有输入框 */
+.fb-rating {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.fb-rating__star {
+  padding: 0 2px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--fb-border);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: color 0.1s ease, transform 0.1s ease;
+}
+
+.fb-rating__star:hover {
+  transform: scale(1.1);
+}
+
+.fb-rating__star--on {
+  color: #f59e0b;
+}
+
+/* 分隔线：只有一条线（可带文字，可虚线） */
+.fb-divider {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--fb-text-weak);
+  border-top: 1px solid var(--fb-border);
+}
+
+.fb-divider--dashed {
+  border-top-style: dashed;
+}
+
+.fb-divider__text {
+  padding: 0 8px;
+  font-size: 12px;
+  background: var(--fb-surface);
+  transform: translateY(-50%);
+}
+
+/* 分组：容器只画框与描述，标签由宿主渲染（编辑器/运行态各一套） */
+.fb-group {
+  display: block;
+}
+
+.fb-group--bordered {
+  padding: var(--fb-space) var(--fb-space) 0;
+  border: 1px solid var(--fb-border);
+  border-radius: var(--fb-radius);
+}
+
+.fb-group__desc {
+  margin: 0 0 var(--fb-space-sm);
+  font-size: 12px;
+  color: var(--fb-text-weak);
+}
+
+.fb-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fb-space-xs);
+}
+
+/* 运行态的分组：标题在框里，子字段照常排 */
+.fb-group-field {
+  display: block;
+  padding: var(--fb-space) var(--fb-space) 0;
+  margin-bottom: var(--fb-space);
+  border: 1px solid var(--fb-border);
+  border-radius: var(--fb-radius);
+}
+
+.fb-group-field > .fb-field__label {
+  color: var(--fb-text-weak);
+}
+
+/* 编辑态：分组自己的字段列表要能接住拖拽落点 */
+.fb-field--container > .fb-field__body > .fb-field-list {
+  min-height: 56px;
+  padding: var(--fb-space-xs);
+  border: 1px dashed var(--fb-border);
+  border-radius: var(--fb-radius-sm);
 }

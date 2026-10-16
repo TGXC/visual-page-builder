@@ -95,7 +95,20 @@ describe('组件面板', () => {
   it('列出所有已注册字段', () => {
     const items = wrapper.findAll('.fb-palette__item')
 
-    expect(items).toHaveLength(3)
+    // M7 补齐 11 类之后，面板内容仍然完全来自注册表（见 tests/unit/registry.spec.ts）
+    expect(items.map(item => item.attributes('data-type'))).toEqual([
+      'text',
+      'textarea',
+      'number',
+      'select',
+      'radio',
+      'checkbox',
+      'switch',
+      'date',
+      'rating',
+      'divider',
+      'group',
+    ])
     expect(items.map(item => item.text())).toEqual(
       expect.arrayContaining([expect.stringContaining('单行文本'), expect.stringContaining('下拉选择')]),
     )

@@ -1,4 +1,5 @@
-import { normalizeFieldOrder } from './tree'
+import { childrenOf, normalizeFieldOrder } from './tree'
+import type { FieldTreeNode } from './tree'
 import type { Condition, CustomRuleName, ErrorMap, FieldNode, FormSchema, FormValues } from './types'
 
 /** 规则名 → 校验函数。规则里不放函数，函数集中在这张表里。 */
@@ -59,6 +60,27 @@ export function visibleFields(schema: FormSchema, values: FormValues): FieldNode
         (hiddenGroups.size === 0 || !underHiddenGroup(f)),
     )
     .sort((a, b) => (displayOrder.get(a.id) ?? 0) - (displayOrder.get(b.id) ?? 0))
+}
+
+/**
+ * 运行态的可见树：把可见字段按层级组织好，分组（容器）留在树里，
+ * 运行态才能把子字段渲染在自己的框里。分组隐藏时整棵子树都不出现——
+ * 这就是 D15 的「连带子孙」，这里由递归天然保证。
+ *
+ * 与 visibleFields 的关系：visibleFields 是它的前序展开（去掉分组），
+ * 校验与提交结果都以 visibleFields 为准，两边顺序一致。
+ */
+export function visibleTree(schema: FormSchema, values: FormValues): FieldTreeNode[] {
+  const walk = (parentId: string | null): FieldTreeNode[] =>
+    childrenOf(schema.fields, parentId)
+      .filter(field => evaluateCondition(field.visibleWhen, values))
+      .map(field => ({
+        field,
+        // core 不认识注册表（不能 import Vue），容器只有 group 一种，与 visibleFields 同一判断
+        children: field.type === 'group' ? walk(field.id) : [],
+      }))
+
+  return walk(null)
 }
 
 /**

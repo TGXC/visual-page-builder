@@ -25,5 +25,8 @@ const controlProps = computed(() => ({ ...descriptor.value.defaultProps, ...prop
     v-bind="controlProps"
     :value="value"
     @update:value="emit('update:value', $event)"
-  />
+  >
+    <!-- 容器字段（group）把子字段接进默认插槽，两条渲染路径都靠这一条 -->
+    <slot />
+  </component>
 </template>

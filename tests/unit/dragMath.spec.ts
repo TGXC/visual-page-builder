@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EDGE_SCROLL_STEP, findDropIndex, toCanvasPoint } from '@/composables/useDragField'
+import { EDGE_SCROLL_STEP, findContainer, findDropIndex, toCanvasPoint } from '@/composables/useDragField'
 import { edgeScrollDelta } from '@/composables/useDragField'
 import { normalizeDropIndex, visualIndexToOrder } from '@/composables/useSortable'
 import { makeField, makeSchema } from './factories'
@@ -120,5 +120,34 @@ describe('visualIndexToOrder：落点换算成补丁里的 order', () => {
 
   it('移动：越界时上限是「剩下来的位置数」', () => {
     expect(visualIndexToOrder(fields, null, 99, a.id)).toBe(2)
+  })
+})
+
+describe('findContainer：指针落在哪个容器里', () => {
+  const hit = (id: string, depth: number, top: number, height: number, left = 0, width = 600) => ({
+    id,
+    depth,
+    rect: { top, bottom: top + height, left, right: left + width },
+  })
+
+  it('都不命中就是根层（null），而不是回退到源父级', () => {
+    expect(findContainer({ clientX: 10, clientY: 10 }, [hit('g1', 0, 100, 200)])).toBeNull()
+    expect(findContainer({ clientX: 10, clientY: 10 }, [])).toBeNull()
+  })
+
+  it('命中一个就返回它', () => {
+    expect(findContainer({ clientX: 10, clientY: 150 }, [hit('g1', 0, 100, 200)])).toBe('g1')
+  })
+
+  it('套了好几层时取最深的那个（拖进内层分组）', () => {
+    const outer = hit('g1', 0, 100, 300)
+    const inner = hit('g2', 1, 160, 100)
+    expect(findContainer({ clientX: 10, clientY: 180 }, [outer, inner])).toBe('g2')
+    // 内层之外、外层之内：落在外层
+    expect(findContainer({ clientX: 10, clientY: 120 }, [outer, inner])).toBe('g1')
+  })
+
+  it('只看纵向包含，横向出界不算命中', () => {
+    expect(findContainer({ clientX: 900, clientY: 150 }, [hit('g1', 0, 100, 200)])).toBeNull()
   })
 })

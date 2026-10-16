@@ -1,5 +1,6 @@
 import { computed, onUnmounted, ref } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
+import { isDescendantOf } from '@/core/tree'
 import type { FieldNode, FieldType } from '@/core/types'
 import { visualIndexToOrder } from './useSortable'
 
@@ -70,6 +71,8 @@ export interface DragState {
   target: DragTarget | null
   /** 落点在元素列表里的插入位，给落点指示线用 */
   visualIndex: number | null
+  /** 指示线画在哪一层：指针在容器里就是容器 id，否则是根层 null */
+  dropParentId: string | null
 }
 
 export interface DragGhost {
@@ -131,6 +134,37 @@ export function edgeScrollDelta(
   return 0
 }
 
+/** 只要求用到的那几个矩形边，测试里好用普通对象当替身。 */
+export interface ContainerBox {
+  top: number
+  bottom: number
+  left: number
+  right: number
+}
+
+export interface ContainerHit {
+  /** 容器字段 id */
+  id: string
+  /** 层级深度：同一点落在多个容器里时取最深的那个 */
+  depth: number
+  rect: ContainerBox
+}
+
+/**
+ * 指针落在哪个容器里：命中多个时取最深的（「拖进内层分组」）。
+ * 都不命中就返回 null —— 根层也是一个合法落点，所以不去回退到源父级。
+ */
+export function findContainer(point: PointerLike, hits: Iterable<ContainerHit>): string | null {
+  let best: ContainerHit | null = null
+  for (const hit of hits) {
+    const { top, bottom, left, right } = hit.rect
+    if (point.clientY < top || point.clientY > bottom) continue
+    if (point.clientX < left || point.clientX > right) continue
+    if (best === null || hit.depth > best.depth) best = hit
+  }
+  return best ? best.id : null
+}
+
 /**
  * 拖拽的完整生命周期只做三件事：
  * 1. 按下后先待命，位移过 5px 才进入拖拽（所以选中与拖拽能共存）；
@@ -168,6 +202,38 @@ export function useDragField(options: UseDragFieldOptions = {}): UseDragFieldApi
     canvas.scrollTop += edgeScrollDelta(clientY, canvas)
   }
 
+  /** 字段在自己所在的层级里的深度（根层 0），用来在多个容器命中时选最深的。 */
+  function depthOf(id: string, byId: Map<string, FieldNode>): number {
+    let depth = 0
+    let cursor = byId.get(id)?.parentId ?? null
+    const seen = new Set<string>([id])
+    while (cursor !== null && !seen.has(cursor)) {
+      seen.add(cursor)
+      depth += 1
+      cursor = byId.get(cursor)?.parentId ?? null
+    }
+    return depth
+  }
+
+  /**
+   * 画布上所有可当落点的容器（分组）。排除被拖的字段自己和它的子孙 ——
+   * 否则可以把分组拖进自己里面，直接造出一个环。
+   */
+  function containerHits(state: DragState, fields: FieldNode[]): ContainerHit[] {
+    const canvas = canvasElement()
+    if (!canvas) return []
+    const byId = new Map(fields.map(field => [field.id, field]))
+    const hits: ContainerHit[] = []
+    const elements = canvas.querySelectorAll<HTMLElement>('.fb-field[data-container="true"]')
+    for (const element of Array.from(elements)) {
+      const id = element.dataset.fieldId
+      if (!id || id === state.fieldId) continue
+      if (state.fieldId && isDescendantOf(fields, state.fieldId, id)) continue
+      hits.push({ id, depth: depthOf(id, byId), rect: element.getBoundingClientRect() })
+    }
+    return hits
+  }
+
   function updateGhost(state: DragState): void {
     const canvas = canvasElement()
     if (!canvas) {
@@ -178,12 +244,18 @@ export function useDragField(options: UseDragFieldOptions = {}): UseDragFieldApi
     ghost.value = { label: state.label, x: point.x + 12, y: point.y + 8 }
   }
 
-  function measure(state: DragState, clientY: number): { target: DragTarget; visualIndex: number } | null {
+  function measure(
+    state: DragState,
+    clientX: number,
+    clientY: number,
+  ): { target: DragTarget; visualIndex: number; dropParentId: string | null } | null {
     const fields = options.fields?.()
     if (!fields) return null
-    const visualIndex = findDropIndex(clientY, fieldElements(state.parentId))
-    const order = visualIndexToOrder(fields, state.parentId, visualIndex, state.fieldId)
-    return { target: { parentId: state.parentId, order }, visualIndex }
+    // 先按指针几何决定落在哪一层（分组里还是根层），再在这一层里数插入位
+    const dropParentId = findContainer({ clientX, clientY }, containerHits(state, fields))
+    const visualIndex = findDropIndex(clientY, fieldElements(dropParentId))
+    const order = visualIndexToOrder(fields, dropParentId, visualIndex, state.fieldId)
+    return { target: { parentId: dropParentId, order }, visualIndex, dropParentId }
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -200,9 +272,10 @@ export function useDragField(options: UseDragFieldOptions = {}): UseDragFieldApi
     }
 
     autoScroll(event.clientY)
-    const measured = measure(state, event.clientY)
+    const measured = measure(state, event.clientX, event.clientY)
     state.target = measured?.target ?? null
     state.visualIndex = measured?.visualIndex ?? null
+    state.dropParentId = measured?.dropParentId ?? null
     updateGhost(state)
   }
 
@@ -277,6 +350,7 @@ export function useDragField(options: UseDragFieldOptions = {}): UseDragFieldApi
       active: false,
       target: null,
       visualIndex: null,
+      dropParentId: input.parentId,
     }
     attach()
   }

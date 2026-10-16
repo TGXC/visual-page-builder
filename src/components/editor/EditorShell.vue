@@ -84,6 +84,7 @@ const fieldCount = computed(() => store.schema.fields.length)
         :selected-ids="store.selectedIds"
         :dragging-id="drag?.fieldId ?? null"
         :active="Boolean(drag?.active)"
+        :drop-parent-id="drag?.dropParentId ?? null"
         :drop-index="drag?.visualIndex ?? null"
         @select="store.select($event)"
         @drag-field="onFieldDragStart"
