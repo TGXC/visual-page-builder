@@ -8,6 +8,7 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type {
+  Breakpoint,
   Doc,
   LayoutSpec,
   NodeId,
@@ -46,9 +47,19 @@ import {
 } from '@/core/ops'
 import { AUTOSAVE_DELAY, loadDoc, saveDoc } from '@/core/persistence'
 import { childrenOf, nextOrder } from '@/core/tree'
-import { generateCss, generateHtml } from '@/core/codegen'
+import { generateHtml, generateResponsiveCss } from '@/core/codegen'
 import { computeLayout } from '@/core/layout'
 import { reparentPatches } from '@/core/dnd'
+import {
+  baseBreakpointId,
+  breakpointViewport,
+  effectiveNodes,
+  effectivePage,
+  orderedBreakpoints,
+  overrideFlags,
+  writeOverride,
+  type OverrideFlags,
+} from '@/core/responsive'
 import { createFromTemplate } from '@/core/templates'
 import { measureText } from '@/utils/textMeasure'
 
@@ -105,15 +116,47 @@ export const useEditorStore = defineStore('editor', () => {
   const nodes = computed(() => activePage.value.nodes)
   const rootId = computed(() => activePage.value.root)
   const topLevel = computed(() => childrenOf(nodes.value, rootId.value))
-  const selection = computed(() => selectedIds.value.map((id) => nodes.value[id]).filter(Boolean) as SceneNode[])
+
+  // ── 断点（M3）──────────────────────────────────────────────────────────
+  /** 启用中的断点，从宽到窄 */
+  const breakpoints = computed<Breakpoint[]>(() => orderedBreakpoints(doc.value.breakpoints))
+  const baseBreakpoint = computed<Breakpoint | null>(() => breakpoints.value[0] ?? null)
+  /** 当前是否在基准（最宽）断点上编辑：只有基准上的编辑才写节点本身 */
+  const isBaseBreakpoint = computed(() => baseBreakpointId(doc.value.breakpoints) === breakpointId.value)
+  /**
+   * 当前断点下的**有效节点**：结构仍来自原节点，样式/属性/布局叠加上继承链上的覆盖。
+   * 画布渲染、选择态属性面板、布局引擎都用它，否则「改了手机断点却看不见」。
+   */
+  const resolvedNodes = computed(() => effectiveNodes(nodes.value, doc.value.breakpoints, breakpointId.value))
+  /** 编辑的几何基准：基准断点用原始节点，窄断点用有效节点（从屏幕上看到的位置接着拖） */
+  const editNodes = computed(() => (isBaseBreakpoint.value ? nodes.value : resolvedNodes.value))
+
+  const selection = computed(() => selectedIds.value.map((id) => resolvedNodes.value[id]).filter(Boolean) as SceneNode[])
   const primary = computed<SceneNode | null>(() => selection.value[0] ?? null)
+  /** 主选中的原生节点（覆盖标记要读它自己的 overrides，有效节点里 overrides 是空的） */
+  const primaryRaw = computed<SceneNode | null>(() => {
+    const id = selectedIds.value[0]
+    return id ? (nodes.value[id] ?? null) : null
+  })
+  const EMPTY_FLAGS: OverrideFlags = {
+    layout: false,
+    style: false,
+    props: false,
+    hidden: false,
+    order: false,
+    empty: true,
+  }
+  /** 主选中在**当前断点**上有没有覆盖（属性面板打点/清除按钮用） */
+  const activeOverrideFlags = computed<OverrideFlags>(() =>
+    primaryRaw.value ? overrideFlags(primaryRaw.value, breakpointId.value) : EMPTY_FLAGS,
+  )
   const canUndoNow = computed(() => canUndo(history.value))
   const canRedoNow = computed(() => canRedo(history.value))
   const labels = computed(() => historyLabels(history.value))
   const position = computed(() => historyPosition(history.value))
   const layout = computed(() =>
     computeLayout({
-      nodes: nodes.value,
+      nodes: resolvedNodes.value,
       rootId: rootId.value,
       viewport: activePage.value.viewport,
       measure: measureText,
@@ -121,8 +164,32 @@ export const useEditorStore = defineStore('editor', () => {
   )
   /** 全页几何（画布与导出共用；free 之外的模式在这里被算成绝对盒） */
   const boxes = computed(() => layout.value.boxes)
-  const generatedHtml = computed(() => generateHtml(doc.value, activePage.value.id, {}, boxes.value))
-  const generatedCss = computed(() => generateCss(doc.value))
+  /**
+   * 导出用的页面：基准断点的有效节点 + 基准断点的设计宽度。
+   * 导出结果不能随「当前预览在哪个断点」变化（见 `docs/decisions.md` D26）。
+   */
+  const exportPage = computed<Page>(() => {
+    const base = baseBreakpoint.value
+    if (!base) return activePage.value
+    return {
+      ...effectivePage(activePage.value, doc.value.breakpoints, base.id),
+      viewport: breakpointViewport(base),
+    }
+  })
+  const exportBoxes = computed(() =>
+    computeLayout({
+      nodes: exportPage.value.nodes,
+      rootId: exportPage.value.root,
+      viewport: exportPage.value.viewport,
+      measure: measureText,
+    }).boxes,
+  )
+  const exportDoc = computed<Doc>(() => ({
+    ...doc.value,
+    pages: doc.value.pages.map((page) => (page.id === activePage.value.id ? exportPage.value : page)),
+  }))
+  const generatedHtml = computed(() => generateHtml(exportDoc.value, activePage.value.id, {}, exportBoxes.value))
+  const generatedCss = computed(() => generateResponsiveCss(doc.value, activePage.value.id))
 
   function pushToast(text: string, kind: Toast['kind'] = 'info'): void {
     toastSeq += 1
@@ -202,10 +269,10 @@ export const useEditorStore = defineStore('editor', () => {
    * （PLAN 的 M2 验收：容器切换布局不丢数据）。
    */
   function updateLayout(id: NodeId, patch: Partial<LayoutSpec>, label = '修改布局'): void {
-    const node = nodes.value[id]
+    const node = editNodes.value[id]
     if (!node) return
     const layout: LayoutSpec = { ...node.layout, ...patch }
-    commit(label, [updatePatch(activePage.value.id, id, { layout: node.layout }, { layout })], `layout:${id}`)
+    writeEdit(id, { layout }, label, `layout:${id}`)
   }
 
   /**
@@ -236,72 +303,110 @@ export const useEditorStore = defineStore('editor', () => {
     return after
   }
 
-  function updateNode(id: NodeId, edit: NodeEdit, mergeKey?: string): void {
+  /**
+   * 一次编辑的**唯一出口**：
+   * - 基准断点：style / props / meta 浅合并落到节点上（改一个字段不抹掉同对象的其它字段）；
+   * - 窄断点：只把**与该断点继承值不同**的部分写进 `overrides[断点]`，
+   *   改回继承值时覆盖自动消失（导出也就不必写多余规则）。
+   * `meta.name` / `meta.locked` 不是断点维度，任何断点下都写回节点本身。
+   */
+  function writeEdit(id: NodeId, edit: NodeEdit, label: string, mergeKey?: string): void {
     const node = nodes.value[id]
     if (!node) return
-    const after = mergeEdit(node, edit)
-    const before: NodePatchData = {}
-    if (after.type !== undefined) before.type = node.type
-    if (after.layout !== undefined) before.layout = node.layout
-    if (after.style !== undefined) before.style = node.style
-    if (after.props !== undefined) before.props = node.props
-    if (after.overrides !== undefined) before.overrides = node.overrides
-    if (after.meta !== undefined) before.meta = node.meta
-    commit(`修改属性`, [updatePatch(activePage.value.id, id, before, after)], mergeKey)
-  }
-
-  function updateSelection(edit: NodeEdit, label = '修改属性', mergeKey?: string): void {
-    const patches: Patch[] = []
-    for (const node of selection.value) {
+    const pageId = activePage.value.id
+    if (isBaseBreakpoint.value) {
       const after = mergeEdit(node, edit)
       const before: NodePatchData = {}
+      if (after.type !== undefined) before.type = node.type
       if (after.layout !== undefined) before.layout = node.layout
       if (after.style !== undefined) before.style = node.style
       if (after.props !== undefined) before.props = node.props
+      if (after.overrides !== undefined) before.overrides = node.overrides
       if (after.meta !== undefined) before.meta = node.meta
-      patches.push(updatePatch(activePage.value.id, node.id, before, after))
+      commit(label, [updatePatch(pageId, id, before, after)], mergeKey)
+      return
+    }
+    const patches: Patch[] = []
+    const override = writeOverride(node, doc.value.breakpoints, breakpointId.value, {
+      layout: edit.layout,
+      style: edit.style,
+      props: edit.props,
+      hidden: edit.meta?.hidden,
+    })
+    const overrides: SceneNode['overrides'] = { ...node.overrides }
+    if (override) overrides[breakpointId.value] = override
+    else delete overrides[breakpointId.value]
+    if (JSON.stringify(overrides) !== JSON.stringify(node.overrides)) {
+      patches.push(updatePatch(pageId, id, { overrides: node.overrides }, { overrides }))
+    }
+    const globalMeta: Partial<NodeMeta> = {}
+    if (edit.meta?.name !== undefined) globalMeta.name = edit.meta.name
+    if (edit.meta?.locked !== undefined) globalMeta.locked = edit.meta.locked
+    if (Object.keys(globalMeta).length > 0) {
+      patches.push(updatePatch(pageId, id, { meta: node.meta }, { meta: { ...node.meta, ...globalMeta } }))
     }
     commit(label, patches, mergeKey)
   }
 
-  function moveSelection(dx: number, dy: number, label = '移动元素', mergeKey?: string): void {
+  function updateNode(id: NodeId, edit: NodeEdit, mergeKey?: string): void {
+    writeEdit(id, edit, '修改属性', mergeKey)
+  }
+
+  function updateSelection(edit: NodeEdit, label = '修改属性', mergeKey?: string): void {
+    for (const id of selectedIds.value) writeEdit(id, edit, label, mergeKey)
+  }
+
+  /** 清除选中元素在当前断点上的覆盖（基准断点没有覆盖可清） */
+  function clearOverrides(ids: NodeId[] = selectedIds.value): void {
+    if (isBaseBreakpoint.value) return
+    const pageId = activePage.value.id
     const patches: Patch[] = []
+    for (const id of ids) {
+      const node = nodes.value[id]
+      if (!node || !node.overrides[breakpointId.value]) continue
+      const overrides: SceneNode['overrides'] = { ...node.overrides }
+      delete overrides[breakpointId.value]
+      patches.push(updatePatch(pageId, id, { overrides: node.overrides }, { overrides }))
+    }
+    commit(`清除 ${breakpointId.value} 覆盖`, patches)
+  }
+
+  function moveSelection(dx: number, dy: number, label = '移动元素', mergeKey?: string): void {
     for (const node of selection.value) {
       const next = {
         ...node.layout,
         position: { x: round(node.layout.position.x + dx), y: round(node.layout.position.y + dy) },
       }
-      patches.push(updatePatch(activePage.value.id, node.id, { layout: node.layout }, { layout: next }))
+      writeEdit(node.id, { layout: next }, label, mergeKey)
     }
-    commit(label, patches, mergeKey)
   }
 
   function setPosition(id: NodeId, x: number, y: number, mergeKey?: string): void {
-    const node = nodes.value[id]
+    const node = editNodes.value[id]
     if (!node) return
     const next = { ...node.layout, position: { x: round(x), y: round(y) } }
-    commit('移动元素', [updatePatch(activePage.value.id, id, { layout: node.layout }, { layout: next })], mergeKey)
+    writeEdit(id, { layout: next }, '移动元素', mergeKey)
   }
 
   function setSize(id: NodeId, w: number, h: number, mergeKey?: string): void {
-    const node = nodes.value[id]
+    const node = editNodes.value[id]
     if (!node) return
     const next = {
       ...node.layout,
       size: { w: { ...node.layout.size.w, value: round(w) }, h: { ...node.layout.size.h, value: round(h) } },
     }
-    commit('缩放元素', [updatePatch(activePage.value.id, id, { layout: node.layout }, { layout: next })], mergeKey)
+    writeEdit(id, { layout: next }, '缩放元素', mergeKey)
   }
 
   function setBox(id: NodeId, box: { x: number; y: number; w: number; h: number }, label: string, mergeKey?: string): void {
-    const node = nodes.value[id]
+    const node = editNodes.value[id]
     if (!node) return
     const next = {
       ...node.layout,
       position: { x: round(box.x), y: round(box.y) },
       size: { w: { ...node.layout.size.w, value: round(box.w) }, h: { ...node.layout.size.h, value: round(box.h) } },
     }
-    commit(label, [updatePatch(activePage.value.id, id, { layout: node.layout }, { layout: next })], mergeKey)
+    writeEdit(id, { layout: next }, label, mergeKey)
   }
 
   function align(kind: AlignKind): void {
@@ -481,11 +586,16 @@ export const useEditorStore = defineStore('editor', () => {
     history.value = { ...history.value, base: docNext }
   }
 
+  /**
+   * 切换编辑断点。画布宽度跟着断点走（视口是「看文档的姿势」，D17），
+   * 这一步只改视图状态、不进历史，所以连续切来切去不会淹没撤销栈。
+   */
   function setBreakpoint(id: string): void {
-    const preset = VIEWPORTS[id]
-    if (!preset) return
+    const breakpoint = doc.value.breakpoints.find((item) => item.id === id && item.enabled)
     breakpointId.value = id
-    applyViewport(preset.w, preset.h)
+    if (!breakpoint) return
+    const size = breakpointViewport(breakpoint)
+    applyViewport(size.w, size.h)
   }
 
   /** 自定义视口宽度（B9 的「自定义」通道）：越界夹取，非法输入忽略。 */
@@ -562,15 +672,21 @@ export const useEditorStore = defineStore('editor', () => {
     pages,
     activePage,
     nodes,
+    resolvedNodes,
     rootId,
     topLevel,
     selectedIds,
     selection,
     primary,
+    primaryRaw,
     hoveredId,
     pointer,
     zoom,
     breakpointId,
+    breakpoints,
+    baseBreakpoint,
+    isBaseBreakpoint,
+    activeOverrideFlags,
     clipboard,
     styleClipboard,
     toasts,
@@ -594,6 +710,7 @@ export const useEditorStore = defineStore('editor', () => {
     updateLayout,
     updateNode,
     updateSelection,
+    clearOverrides,
     moveSelection,
     setPosition,
     setSize,

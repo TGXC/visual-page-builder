@@ -5,8 +5,14 @@
  * 「语义化 HTML + 独立 CSS 类」，这里把差异隔离在 `generateCss` 与
  * `inlineStyle` 两个入口，避免到时候重写整条导出链路。
  */
-import type { Box, Doc, NodeId, Page, SceneNode } from '../schema/types'
+import type { Box, Breakpoint, Doc, NodeId, Page, SceneNode } from '../schema/types'
 import { computeLayout } from '../layout'
+import {
+  breakpointViewport,
+  effectivePage,
+  mediaQueryForBreakpoint,
+  orderedBreakpoints,
+} from '../responsive'
 import { childrenOf } from '../tree'
 
 export function escapeHtml(text: string): string {
@@ -52,10 +58,10 @@ function resolvePage(doc: Doc, key: string): Page {
 }
 
 /**
- * 内联样式。`box` 由布局引擎（`core/layout`）给出；不传时退回节点自己的 position/size，
- * 这样 M1 的自由布局行为不变，M2 起画布与导出都走同一份几何。
+ * 把节点渲染成声明列表（`prop:value`）。`inlineStyle` 与断点媒体查询共用它，
+ * 这样两边不会出现「一个属性只有一边认识」的漂移。
  */
-export function inlineStyle(node: SceneNode, backgroundImage = '', box?: Box): string {
+function declarations(node: SceneNode, backgroundImage: string, box?: Box): string[] {
   const { style, layout } = node
   const x = box ? box.x : layout.position.x
   const y = box ? box.y : layout.position.y
@@ -91,8 +97,94 @@ export function inlineStyle(node: SceneNode, backgroundImage = '', box?: Box): s
   if (style.letterSpacing !== 0) parts.push(`letter-spacing:${px(style.letterSpacing)}`)
   if (node.meta.hidden) parts.push('display:none')
 
-  return parts.join(';')
+  return parts
 }
+
+function declarationMap(node: SceneNode, backgroundImage: string, box?: Box): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const part of declarations(node, backgroundImage, box)) {
+    const index = part.indexOf(':')
+    if (index > 0) map.set(part.slice(0, index), part.slice(index + 1))
+  }
+  return map
+}
+
+/** 某个声明在更窄断点被「取消」时，用它把值复位（媒体查询没有继承语义） */
+const RESET_DECLARATIONS: Record<string, string> = {
+  display: 'block',
+  background: 'none',
+  'background-image': 'none',
+  'background-size': 'auto',
+  'background-position': '0 0',
+  color: 'inherit',
+  'font-size': 'inherit',
+  'font-weight': 'inherit',
+  'text-align': 'inherit',
+  'border-radius': '0',
+  border: 'none',
+  opacity: '1',
+  'box-shadow': 'none',
+  'line-height': 'inherit',
+  'letter-spacing': 'normal',
+}
+
+/** 该断点下页面几何与有效节点（页面宽度换成断点自己的设计宽度） */
+function pageAtBreakpoint(page: Page, breakpoints: readonly Breakpoint[], breakpoint: Breakpoint): Page {
+  return { ...effectivePage(page, breakpoints, breakpoint.id), viewport: breakpointViewport(breakpoint) }
+}
+
+/**
+ * 断点感知的 CSS：基准断点（最宽）不写媒体查询，其余断点各出一个
+ * `@media (max-width: 上一级 minWidth - 0.02px)` 块，块里只写与**更宽一级**
+ * 不同的声明，并用 `!important` 压过元素上的内联样式（内联样式优先级最高）。
+ */
+export function generateResponsiveCss(doc: Doc, pageKey: string): string {
+  const page = resolvePage(doc, pageKey)
+  const ordered = orderedBreakpoints(doc.breakpoints)
+  if (ordered.length <= 1) return ''
+  const blocks: string[] = []
+  for (let index = 1; index < ordered.length; index += 1) {
+    const breakpoint = ordered[index]
+    const query = mediaQueryForBreakpoint(doc.breakpoints, breakpoint.id)
+    if (!query) continue
+    const current = pageAtBreakpoint(page, doc.breakpoints, breakpoint)
+    const previous = pageAtBreakpoint(page, doc.breakpoints, ordered[index - 1])
+    const currentBoxes = computeLayout({ nodes: current.nodes, rootId: current.root, viewport: current.viewport }).boxes
+    const previousBoxes = computeLayout({ nodes: previous.nodes, rootId: previous.root, viewport: previous.viewport }).boxes
+    const rules: string[] = [
+      `  .page[data-id="${page.root}"] { width:${px(current.viewport.w)} !important; height:${px(current.viewport.h)} !important }`,
+    ]
+    for (const id of Object.keys(current.nodes)) {
+      if (id === page.root) continue
+      const node = current.nodes[id]
+      const before = previous.nodes[id]
+      if (!node || !before) continue
+      const currentDecls = declarationMap(node, backgroundImageOf(node), currentBoxes[id])
+      const previousDecls = declarationMap(before, backgroundImageOf(before), previousBoxes[id])
+      const parts: string[] = []
+      for (const [prop, value] of currentDecls) {
+        if (previousDecls.get(prop) !== value) parts.push(`${prop}:${value} !important`)
+      }
+      for (const prop of previousDecls.keys()) {
+        if (!currentDecls.has(prop) && RESET_DECLARATIONS[prop]) {
+          parts.push(`${prop}:${RESET_DECLARATIONS[prop]} !important`)
+        }
+      }
+      if (parts.length > 0) rules.push(`  .el[data-id="${id}"] { ${parts.join('; ')} }`)
+    }
+    blocks.push(`${query} {\n${rules.join('\n')}\n}`)
+  }
+  return blocks.join('\n')
+}
+
+/**
+ * 内联样式。`box` 由布局引擎（`core/layout`）给出；不传时退回节点自己的 position/size，
+ * 这样 M1 的自由布局行为不变，M2 起画布与导出都走同一份几何。
+ */
+export function inlineStyle(node: SceneNode, backgroundImage = '', box?: Box): string {
+  return declarations(node, backgroundImage, box).join(';')
+}
+
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)
@@ -214,6 +306,7 @@ export function generateHtml(
 ): string {
   const page = resolvePage(doc, pageKey)
   const title = options.title ?? doc.name
+  const responsive = generateResponsiveCss(doc, page.id)
   return [
     '<!DOCTYPE html>',
     '<html lang="zh-CN">',
@@ -222,6 +315,7 @@ export function generateHtml(
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<style>${generateCss(doc)}</style>`,
+    ...(responsive ? ['<style>', responsive, '</style>'] : []),
     '<style>',
     '  * { margin: 0; padding: 0; }',
     '  body { background: #f1f5f9; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }',

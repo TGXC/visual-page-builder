@@ -220,4 +220,44 @@
 
 **代价**：`stretch` 在 grid 下没有实现（宽度靠 `size.kind === 'fill'` 表达），跨模式读代码时需要留意 `justify` 的语义切换。
 
+## D26：断点覆盖只存差异，差异相对「更宽一级的有效值」计算
+
+**决定**：`core/responsive` 的 `writeOverride(node, breakpoints, targetId, edit)` 先在继承链上求出「目标断点以下（更宽那些断点）的有效节点」`below`，再把这次编辑作用到 `below + 已有覆盖` 上得到 `desired`，最后逐键比较 `desired` 与 `below`，只把不同的键写进 `overrides[targetId]`；结果为空对象时返回 `null`（调用方删掉该断点的覆盖）。因此「把值改回继承值」＝覆盖自动消失。
+
+**理由**：`PLAN.md` 明确要求断点覆盖只存差异。若存全量，导出时就得为每个断点写出全部属性（HTML 体积翻倍），而且「改回继承值」会留下一条无意义的覆盖，之后基准断点改样式它还会继续钉住旧值。
+
+**代价**：每次编辑都要做一次继承链求解（`O(断点数)`），断点数量多时写入变慢；`below` 只按「更宽一级」算，所以断点的 `minWidth` 排序决定了继承方向，改 `minWidth` 会让已有覆盖的相对语义变化。
+
+## D27：`NodeOverride.layout` 的嵌套子对象是整体替换，不是逐字段合并
+
+**决定**：`layout` 这一层可以部分覆盖（只给 `mode`、不给 `size`），但 `position` / `size` / `padding` / `constraints` 这些**嵌套子对象**一旦写入就是完整对象 —— `diffLayout()` 检测到子对象有变化时输出整个子对象。类型上 `NodeOverride.layout` 是 `Partial<LayoutSpec>`，而 `LayoutSpec.size` 是必填的 `{ w, h }`，没法只写单轴。
+
+**理由**：类型系统已经把这条路堵死，硬要支持单轴就得把 `LayoutSpec.size` 改成可选并让布局引擎到处判空。整体替换的语义也更简单：读覆盖时不需要再把「半个 size」和继承值拼起来。
+
+**代价**：覆盖体积比理论最小值大（改 `size.w` 会连 `size.h` 一起写进去）；如果以后基准断点改 `size.h`，窄断点里那条「顺带写进去的 h」会继续钉住旧值 —— 这点在 `writeOverride` 的逐键比较里已经尽量收敛（只写与 `below` 不同的键）。
+
+## D28：导出与「当前预览断点」解耦，永远从基准断点导出
+
+**决定**：`store.generatedHtml` 用 `exportDoc`（基准断点的有效文档 + 基准断点宽度）与 `exportBoxes` 生成，`generatedCss = generateResponsiveCss(doc, activePage.id)` 覆盖所有启用的窄断点。切到手机断点预览**不会**改变导出的 HTML。
+
+**理由**：导出物是一份静态站点：基准视图的内联样式 + 各窄断点的 media query 覆盖。如果跟着预览断点走，同一份文档在「看着手机」时导出会丢掉桌面规则，用户复制代码的结果取决于当时的视图状态 —— 这是不可复现的输出。
+
+**代价**：预览断点下看到的页面与「导出的基准视图」不完全一致（前者是断点覆盖后的结果）；代码面板的 CSS 页签因此只有 media query，需要在面板里写明「基础样式内联在元素上」（`CodePanel.vue` 的 `CSS_NOTE`）。
+
+## D29：media query 上界取「更宽一级断点的 minWidth − 0.02px」，并用 `!important` 压过内联样式
+
+**决定**：`mediaQueryForBreakpoint()` 对非基准断点输出 `@media (max-width: <上一级 minWidth - 0.02>px)`（desktop 1200 → tablet `1199.98px`，mobile `767.98px`）；块内声明一律带 `!important`；「更宽断点有、当前断点没有」的属性用 `RESET_DECLARATIONS` 显式复位（`display:block` / `background:none` / `color:inherit` …）。
+
+**理由**：内联样式的优先级高于普通样式表规则，不加 `!important` 媒体查询就是死代码。上界减 0.02 而不是减 1，是为了在 `minWidth` 不是整数时也能把「上一级」排除干净（CSS 的 `max-width` 与 `min-width` 在同一个像素上会同时命中）。复位声明是必需的：`display:none` 覆盖一旦被取消，如果不写 `display:block`，用户会看到「清除隐藏后元素还是不见」。
+
+**代价**：`!important` 让导出物难以二次维护（用户想用外部样式覆盖就得再加权重）；复位表是手写白名单，将来 `declarations()` 新增属性时必须同步补进 `RESET_DECLARATIONS`，否则「取消某属性」会失效。
+
+## D30：断点切换用预设视口宽度，而不是 `minWidth` 本身
+
+**决定**：`BREAKPOINT_VIEWPORTS` 给出 desktop `1440×900` / tablet `768×1024` / mobile `375×812`；`breakpointViewport(breakpoint)` 优先用预设，否则用 `minWidth` 作为页面宽度（`clamp(200, 10000)`、高 900），`minWidth <= 0`（mobile）直接返回 `375×812`。
+
+**理由**：切换编辑断点时画布必须立刻变成「那个断点代表性的宽度」，否则拖拽/磁吸/换父级算出来的坐标都不是用户将在浏览器里看到的那套。手机断点的 `minWidth` 是 0（表示「0 到 767 之间」），拿它当宽度会得到 200px 的假画布，所以必须走预设。
+
+**代价**：断点表格与 `minWidth` 之间是隐式的两套数值，用户在设置里改 `minWidth` 不会改画布预设宽度；`setViewportWidth`（自定义宽度）不改 `breakpointId`，所以「预览 900px 宽但仍在手机断点编辑」是允许的状态。
+
 

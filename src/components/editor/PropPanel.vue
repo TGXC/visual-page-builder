@@ -53,6 +53,9 @@ const NUMBER_KEYS = new Set([
 
 const node = computed<SceneNode | null>(() => (store.selectedIds.length === 1 ? store.primary : null))
 const box = computed(() => (node.value ? rectOf(node.value) : null))
+const breakpointLabel = computed(
+  () => store.breakpoints.find((item) => item.id === store.breakpointId)?.label ?? store.breakpointId,
+)
 
 const ALIGNS = [
   { key: 'left', label: '左对齐' },
@@ -170,6 +173,22 @@ function copyStyle(): void {
         {{ node.type }}
         <span class="prop-type__id">{{ node.id }}</span>
       </p>
+
+      <div v-if="!store.isBaseBreakpoint" class="prop-override">
+        <span v-if="!store.activeOverrideFlags.empty" class="prop-override__badge" data-role="override-badge">
+          {{ breakpointLabel }} 覆盖
+        </span>
+        <span v-else class="prop-override__hint" data-role="override-hint">继承自更宽的断点</span>
+        <button
+          v-if="!store.activeOverrideFlags.empty"
+          type="button"
+          class="ghost-button"
+          data-role="clear-override"
+          @click="store.clearOverrides()"
+        >
+          清除覆盖
+        </button>
+      </div>
 
       <label class="prop-row">
         <span class="prop-row__label">图层名</span>

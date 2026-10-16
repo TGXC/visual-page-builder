@@ -51,7 +51,7 @@ describe('M1 产出：代码面板、导出、模板与导入', () => {
     vi.useRealTimers()
   })
 
-  it('代码面板展示 HTML，切到 CSS 页签显示内联样式说明', async () => {
+  it('代码面板展示 HTML，切到 CSS 页签显示内联说明与断点覆盖', async () => {
     const id = store.insertComponent('text', { position: { x: 20, y: 30 } })
     store.updateNode(id, { props: { text: '欢迎光临' } })
     await nextTick()
@@ -60,7 +60,9 @@ describe('M1 产出：代码面板、导出、模板与导入', () => {
     expect(view.text()).toContain('欢迎光临')
     expect(view.text()).toContain('position:absolute')
     await wrapper.find('[data-role="tab-css"]').trigger('click')
-    expect(wrapper.find('[data-role="code-view"]').text()).toContain('内联')
+    const css = wrapper.find('[data-role="code-view"]').text()
+    expect(css).toContain('内联')
+    expect(css).toContain('@media (max-width: 1199.98px)')
   })
 
   it('复制代码写入剪贴板', async () => {

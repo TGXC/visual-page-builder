@@ -835,3 +835,26 @@ button {
   font-size: 11px;
   line-height: 1.5;
 }
+
+/* ---------- 断点覆盖标记 ---------- */
+
+.prop-override {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.prop-override__badge {
+  padding: 1px 6px;
+  background: var(--studio-primary-weak, #dbeafe);
+  border-radius: 999px;
+  color: var(--studio-primary, #2563eb);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.prop-override__hint {
+  color: var(--studio-text-muted, #64748b);
+  font-size: 11px;
+}

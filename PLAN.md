@@ -121,6 +121,8 @@ npm run build
 
 **验收**：单测（继承/覆盖/清除/多断点叠加）+ 组件测试（切断点改属性只写 override）+ 导出断言（HTML 含 media query）。判据：桌面 3 列 → 手机 1 列，互不污染。
 
+**实现偏离（已完成）**：覆盖差异相对「更宽一级的有效值」计算（D26），嵌套 `layout` 子对象整体替换（D27）；导出与预览断点解耦、永远从基准断点导出（D28）；media query 上界取 `minWidth − 0.02` 并用 `!important` + 复位声明（D29）；断点切换用预设视口宽度（D30）。断点目前只有内置 desktop/tablet/mobile，**增删与自定义断点的设置 UI 未做**。
+
 ### M4 组件体系
 
 **任务**：Group/Container、`core/symbols`（创建组件、实例覆盖白名单、master 编辑态、循环引用检测）、自定义组件、插件式 `ComponentDescriptor`（`toHtml`/`aiDoc`/`overridable`）、组件库扩到 30+（含并入表单字段与校验引擎）。

@@ -48,7 +48,9 @@ interface Interaction {
 
 let interaction: Interaction | null = null
 
-const root = computed<SceneNode>(() => store.nodes[store.rootId])
+const root = computed<SceneNode>(() => view.value[store.rootId])
+/** 画布一律渲染「当前断点的有效节点」：断点上的覆盖（隐藏/样式/几何）必须看得见 */
+const view = computed<Record<NodeId, SceneNode>>(() => store.resolvedNodes)
 const vw = computed(() => store.viewport().w)
 const vh = computed(() => store.viewport().h)
 
@@ -63,7 +65,7 @@ function localPoint(clientX: number, clientY: number): { x: number; y: number } 
 function snapTargets(ids: NodeId[]): { x: number[]; y: number[] } {
   const x = [0, vw.value / 2, vw.value]
   const y = [0, vh.value / 2, vh.value]
-  for (const node of Object.values(store.nodes)) {
+  for (const node of Object.values(view.value)) {
     if (ids.includes(node.id) || node.id === store.rootId) continue
     if (ids.some((id) => isDescendantOf(store.nodes, id, node.id))) continue
     if (node.meta.hidden) continue
@@ -83,7 +85,7 @@ function topLevelSelection(): NodeId[] {
 /** 指针落在哪个容器里（取最深的那层，排除被拖动的节点及其子孙），拖入分组/换父级都用它 */
 function containerAt(point: { x: number; y: number }, exclude: NodeId[] = []): NodeId | null {
   return dropParentAt({
-    nodes: store.nodes,
+    nodes: view.value,
     boxes: store.boxes,
     rootId: store.rootId,
     point,
@@ -99,7 +101,7 @@ const dropHint = computed(() => {
   const id = dropTarget.value
   if (!id) return null
   const box = store.boxes[id]
-  const layout = store.nodes[id]?.layout
+  const layout = view.value[id]?.layout
   if (!box || !layout) return null
   const padding = layout.padding
   const axis: 'x' | 'y' = layout.mode === 'horizontal' ? 'x' : 'y'
@@ -107,7 +109,7 @@ const dropHint = computed(() => {
   const originX = box.x + padding.left
   const originY = box.y + padding.top
   let at = axis === 'x' ? originX : originY
-  for (const node of Object.values(store.nodes)) {
+  for (const node of Object.values(view.value)) {
     if (node.parentId !== id || node.meta.hidden || moving.includes(node.id)) continue
     const child = store.boxes[node.id]
     if (!child) continue
@@ -301,7 +303,7 @@ function onStagePointerMove(event: PointerEvent): void {
   }
   // 等距提示：必须在 setBox 之后算，才拿到移动后的盒子
   spacings.value = spacingHints({
-    nodes: store.nodes,
+    nodes: view.value,
     boxes: store.boxes,
     rootId: store.rootId,
     ids: interaction.ids,
@@ -312,7 +314,7 @@ function onStagePointerUp(event: PointerEvent): void {
   if (!interaction) return
   if (interaction.mode === 'marquee' && marquee.value) {
     const box = marquee.value
-    const hit = Object.values(store.nodes)
+    const hit = Object.values(view.value)
       .filter((node) => node.id !== store.rootId && !node.meta.hidden && node.parentId === store.rootId)
       .filter((node) => rectsIntersect(rectOf(node), box))
       .map((node) => node.id)
@@ -351,7 +353,7 @@ function onStageContextMenu(event: MouseEvent): void {
 }
 
 function startEdit(id: NodeId): void {
-  const node = store.nodes[id]
+  const node = view.value[id]
   if (!node) return
   editingId.value = id
   editingValue.value = String(node.props.text ?? '')
@@ -361,7 +363,7 @@ function startEdit(id: NodeId): void {
 function commitTextEdit(): void {
   const id = editingId.value
   if (!id) return
-  const node = store.nodes[id]
+  const node = view.value[id]
   editingId.value = null
   if (!node) return
   const next: Record<string, unknown> = { ...node.props, text: editingValue.value }
@@ -371,7 +373,7 @@ function commitTextEdit(): void {
 
 const editingBox = computed(() => {
   if (!editingId.value) return null
-  const node = store.nodes[editingId.value]
+  const node = view.value[editingId.value]
   return node ? rectOf(node) : null
 })
 
@@ -395,7 +397,7 @@ onBeforeUnmount(() => {
       :style="{ width: `${vw * store.zoom}px`, height: `${vh * store.zoom}px` }"
     >
       <div class="canvas-page__inner" :style="{ width: `${vw}px`, height: `${vh}px`, transform: `scale(${store.zoom})` }">
-        <ElementView :node="root" :nodes="store.nodes" :scale="store.zoom" @edit-text="startEdit" />
+        <ElementView :node="root" :nodes="view" :scale="store.zoom" @edit-text="startEdit" />
 
         <span
           v-for="(guide, index) in guides"

@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -68,6 +68,23 @@ M1 的画布是「绝对定位 + 手动拖」，M2 把它变成真正的布局�
 
 M2 的验收判据「1440↔375 宽度下 `fill` / `hug` / `constraints` 正确」由 `layoutEdges.spec.ts` 的断点约束用例（设计视口 600×400 → 当前 900×600）与 `editor.spec.ts` 的「切模式再切回 free 位置还原」用例覆盖。
 
+## M3 已经做了什么：响应式断点
+
+M2 的 `constraints` 只是「按当前视口等比缩放」，M3 才让**每个断点可以有自己的值**：在手机断点改的样式/布局写进 `node.overrides.mobile`（只存差异），画布显示断点有效值，导出的 HTML 带上对应的 media query。
+
+| # | 能力 | 实现 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 断点定义与继承链 | `src/core/responsive/index.ts`：`orderedBreakpoints`（按 `minWidth` 从宽到窄）、`baseBreakpointId`、`cascadeIds`（`mobile` → `['desktop','tablet','mobile']`，禁用的断点跳过） | `tests/unit/responsive.spec.ts`（17） |
+| 2 | 有效节点求解 | `effectiveNode / effectiveNodes / effectivePage / effectiveDoc`：在原节点上依次叠加继承链上的 `overrides`（layout 嵌套合并、style / props 逐键、hidden / order），纯函数、不改原节点 | 同上 |
+| 3 | 覆盖只存差异 | `writeOverride()`：相对「更宽一级的有效值」算 diff，改回继承值 → 覆盖自动消失（返回 `null`） | 同上 + `breakpoints.spec.ts` |
+| 4 | 编辑分流 | `src/stores/editor.ts` 的 `writeEdit()` 是唯一编辑出口：基准断点写节点本身，窄断点写 `overrides[断点]`；`meta.name / locked` 不是断点维度，任何断点都写回节点 | `tests/component/breakpoints.spec.ts` |
+| 5 | 覆盖标记与清除 | `PropPanel.vue`：窄断点下显示「xx 覆盖」徽标（`[data-role=override-badge]`）与「清除覆盖」按钮；没有覆盖时显示「继承自更宽的断点」 | 同上 |
+| 6 | 画布渲染断点有效值 | `CanvasStage.vue` 用 `store.resolvedNodes` 渲染与命中检测，隐藏元素在编辑器里半透明保留、导出时才 `display:none` | 同上 |
+| 7 | 断点感知导出 | `generateResponsiveCss()`：每个非基准断点输出 `@media (max-width: …)`，上界 = 更宽一级 `minWidth − 0.02`，声明带 `!important`，被取消的属性用 `RESET_DECLARATIONS` 复位 | `tests/unit/responsiveExport.spec.ts`（6） |
+| 8 | 导出与预览解耦 | 导出永远从**基准断点**的有效文档生成（内联样式 + 全部 media query），切到手机预览不改变导出结果 | `responsiveExport.spec.ts`、`breakpoints.spec.ts` |
+
+M3 的验收判据「桌面 3 列 → 手机 1 列，互不污染」由 `breakpoints.spec.ts` 的端到端用例覆盖：grid 容器桌面 `columns: 3`（三个子块同一行）→ 手机断点改 `columns: 1`（三个子块同一列、三行），`store.nodes[grid].layout.columns` 仍是 3，`overrides.mobile.layout.columns === 1`，`generatedCss` 含 `@media (max-width: 767.98px)`；切回桌面排版复原。
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -106,6 +123,7 @@ src/
 │   ├── layout/              # computeLayout()：四种容器模式 / 四种尺寸模式 / constraints / hug 测量注入
 │   ├── dnd/                 # dropParentAt() 落点 + reparentPatches() 换父级（位置换算到新容器）
 │   ├── spacing/             # spacingHints()：拖动中的等距提示
+│   ├── responsive/          # 断点继承链 / 有效节点求解 / writeOverride() 只存差异 / media query 上界
 │   └── export/              # drawPage()：PNG 近似截图
 ├── utils/textMeasure.ts     # 离屏 canvas 折行测量（碰 document，所以不在 core）
 ├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史 + 布局
@@ -120,7 +138,7 @@ tests/
 └── perf/                    # 1000 节点布局性能（npm run test:perf，独立 config）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D25）
+├── decisions.md             # 架构决策记录（ADR，D1–D30）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
@@ -128,10 +146,10 @@ docs/
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 20 个文件 / **297 个用例全绿** |
-| 覆盖率 | 语句 98.16% · 分支 91.41% · 函数 100% · 行 100%（阈值 90） |
-| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **2.65ms**（阈值 8ms） |
-| 构建 | 64 modules；JS 169.01 kB（**gzip 60.14 kB**）；CSS 16.31 kB（gzip 3.41 kB） |
+| 测试 | 23 个文件 / **330 个用例全绿** |
+| 覆盖率 | 语句 97.48% · 分支 91.27% · 函数 98.92% · 行 99.69%（阈值 90） |
+| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.63ms**（阈值 8ms） |
+| 构建 | 65 modules；JS 176.28 kB（**gzip 62.62 kB**）；CSS 16.62 kB（gzip 3.45 kB） |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 
 ## 架构决策
@@ -144,6 +162,8 @@ store 的 `updateNode/updateSelection` 对 `style/props/meta` 浅合并。
 M2 新增 D16–D25：`safeUrl()` 放行光栅 dataURL、切视口不进历史栈、`TextMeasure` 可返回 `undefined`、
 折行测量在 `utils` 且不用 `ResizeObserver`、`ratio` 语义是 w/h、等距提示阈值 400、`subtreeOf()` 返回 id、
 布局面板只写 `layout`、折行里「整行 fill」按容器高兜底、grid 的 `justify` 表示单元内水平偏移。
+M3 新增 D26–D30：断点覆盖只存差异（相对更宽一级算）、`NodeOverride.layout` 的嵌套子对象整体替换、
+导出与预览断点解耦、media query 上界 `minWidth − 0.02` + `!important` + 复位声明、断点切换用预设视口宽度。
 
 ## 本机开发环境的三个坑（Windows + 受限沙箱）
 
@@ -154,13 +174,18 @@ M2 新增 D16–D25：`safeUrl()` 放行光栅 dataURL、切视口不进历史�
 
 ## 已知缺口 / 未做
 
-- **M3–M8 尚未实现**：真断点覆盖（`overrides` 生效 + 覆盖标记 + media query 导出）、组件体系（Group/Container/组件库 30+）、Vue/React 代码生成、AI 助手都在 [PLAN.md](PLAN.md) 里。M2 做完的是「画布真的会布局」：四种容器模式、四种尺寸模式、断点约束、换父级与等距提示。
+- **M4–M8 尚未实现**：组件体系（Group/Container/组件库 30+）、Vue/React 代码生成、AI 助手都在 [PLAN.md](PLAN.md) 里。M3 做完的是「断点真的能各写各的」：覆盖只存差异、画布显示断点有效值、导出带 media query。
+- **M3 的取舍与已知缺口**：
+  - 断点表格 `Doc.breakpoints` 里的 desktop / tablet / mobile 目前**不可增删**（只有 `minWidth` 与 `enabled` 会被尊重），设置 UI 还没做。
+  - `NodeOverride.layout` 的嵌套子对象是整体替换（D27），所以窄断点改 `size.w` 会连 `size.h` 一起写进覆盖。
+  - 媒体查询只覆盖启用中的断点，且导出用 `!important` —— 用户之后想用外部样式表覆盖这些声明需要更高权重。
+  - 覆盖标记只标「这个元素在当前断点有覆盖」，还没细分「哪几个属性被覆盖」。
 - **M2 的取舍与已知缺口**：
   - `estimated`（无 Canvas 时估算出的 hug 尺寸）已经在 `computeLayout()` 里标出，但**画布还没可视化**「这是估算值」。
   - 水平折行里「整行都是 `fill` 高」的行按容器高兜底（D24），视觉上会比相邻行高很多；grid 的 `justify` 在 grid 模式下表示「单元内水平偏移」而不是主轴分布（D25）。
   - `constraints` 只在 `free` 模式生效（流式布局里位置由布局算法决定），从 free 切到流式再切回来位置会还原 —— 这是 M2 判据要求的，但也意味着流式模式下改「位置」暂时看不到效果。
   - 文本测量固定 `FONT_STACK`、缓存整体清空（D19）；字体族不可配。
-- **`setBreakpoint / applyViewport` 直接改写 `history.base`，不走补丁、不进历史**：M1 的取舍是「切视口不污染撤销栈」，代价是切视口后无法撤销回去；M3 做真正的断点编辑时要重构成可撤销的补丁。
+- **`setBreakpoint / applyViewport` 直接改写 `history.base`，不走补丁、不进历史**（D17/D30）：切视口/切断点是「看文档的姿势」而不是内容，所以刻意不污染撤销栈，代价是切过去不能撤销回去 —— 但断点**覆盖**本身是普通补丁，可正常撤销（`breakpoints.spec.ts` 有「清除覆盖后可撤销」用例）。
 - **PNG 导出是近似截图**：`drawPage()` 手绘矩形与文字，字体度量与浏览器渲染有偏差；M7 会换成真实位图。
 - **真实浏览器视觉验证没有自动化证据**：本机 headless Edge 被沙箱的命名管道限制拦住（`mojo ... platform_channel.cc:187 Check failed: . : 拒绝访问 (0x5)`），拖拽与像素级对齐只能人工打开 dev 服务器确认。
 - **线上链接**：本机 `git push` 走 HTTPS 到 GitHub 会报 schannel `SEC_E_NO_CREDENTIALS`，且没有托管平台账号 —— 部署这一步需要你自己的账号。

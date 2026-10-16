@@ -7,7 +7,14 @@ import { useEditorStore } from '@/stores/editor'
 const store = useEditorStore()
 const toast = ref('')
 
-const code = computed(() => (store.codeTab === 'css' ? store.generatedCss : store.generatedHtml))
+/** CSS 页签：基础样式以内联方式落在每个元素上，这里只列断点覆盖（media query） */
+const CSS_NOTE = '/* 基础样式以内联方式输出在每个元素上，这里只列出断点覆盖 */'
+
+const code = computed(() => {
+  if (store.codeTab !== 'css') return store.generatedHtml
+  const responsive = store.generatedCss
+  return responsive ? `${CSS_NOTE}\n\n${responsive}` : CSS_NOTE
+})
 const title = computed(() => store.activePage?.name ?? '页面')
 
 function setTab(tab: 'html' | 'css'): void {
