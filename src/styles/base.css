@@ -1,955 +1,216 @@
-/* 基础样式与两条渲染路径共用的呈现层：编辑器与预览页类名一致，视觉自然一致。 */
-
-*,
-*::before,
-*::after {
+* {
   box-sizing: border-box;
-}
-
-html,
-body,
-#app {
-  height: 100%;
 }
 
 body {
   margin: 0;
-  font-family: var(--fb-font);
+  font-family: var(--studio-font);
   font-size: 14px;
   line-height: 1.5;
-  color: var(--fb-text);
-  background: var(--fb-bg);
+  color: var(--studio-text);
+  background: var(--studio-bg);
 }
 
-/* ---------- 应用外壳 ---------- */
+button {
+  font: inherit;
+  cursor: pointer;
+}
 
-.fb-app {
+.studio-app {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  min-height: 100vh;
 }
 
-.fb-app__bar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+.studio-bar {
   display: flex;
   align-items: center;
-  gap: var(--fb-space-lg);
-  height: 56px;
-  padding: 0 var(--fb-space-lg);
-  background: var(--fb-surface);
-  border-bottom: 1px solid var(--fb-border);
+  gap: var(--studio-space);
+  padding: 12px var(--studio-space-lg);
+  background: var(--studio-surface);
+  border-bottom: 1px solid var(--studio-border);
 }
 
-.fb-app__brand {
-  font-size: 15px;
-  font-weight: 600;
+.studio-bar__brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
-.fb-app__nav {
+.studio-bar__tag {
+  color: var(--studio-text-weak);
+  font-size: 12px;
+}
+
+.studio-bar__actions {
   display: flex;
-  gap: var(--fb-space-sm);
+  align-items: center;
+  gap: var(--studio-space-sm);
+  margin-left: auto;
 }
 
-.fb-app__nav a {
-  padding: 6px 12px;
-  font-size: 13px;
-  color: var(--fb-text-weak);
-  text-decoration: none;
-  border-radius: var(--fb-radius-sm);
-}
-
-.fb-app__nav a:hover {
-  color: var(--fb-text);
-  background: var(--fb-bg);
-}
-
-.fb-app__nav a.router-link-active {
-  font-weight: 600;
-  color: var(--fb-primary);
-  background: var(--fb-primary-weak);
-}
-
-.fb-view {
-  display: flex;
-  flex: 1;
-  justify-content: center;
-  padding: var(--fb-space-xl) var(--fb-space-lg);
-}
-
-/* ---------- 页面（画布 / 表单） ---------- */
-
-.fb-canvas,
-.fb-form {
-  width: 100%;
-  max-width: 640px;
-  padding: var(--fb-space-xl);
-  background: var(--fb-surface);
-  border-radius: var(--fb-radius-lg);
-  box-shadow: var(--fb-shadow);
-}
-
-.fb-canvas__title,
-.fb-form__title {
-  margin: 0 0 var(--fb-space-xs);
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.fb-canvas__desc,
-.fb-form__desc {
-  margin: 0 0 var(--fb-space-lg);
-  font-size: 13px;
-  color: var(--fb-text-weak);
-}
-
-.fb-canvas__fields {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fb-space);
-}
-
-/* ---------- 字段 ---------- */
-
-.fb-field {
-  display: block;
-}
-
-.fb-form .fb-field {
-  margin-bottom: var(--fb-space);
-}
-
-.fb-field__label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.fb-empty {
-  padding: var(--fb-space-xl);
-  font-size: 13px;
-  color: var(--fb-text-weak);
-  text-align: center;
-  border: 1px dashed var(--fb-border);
-  border-radius: var(--fb-radius);
-}
-
-/* ---------- 控件 ---------- */
-
-.fb-input {
-  position: relative;
-  display: flex;
-}
-
-.fb-input__control,
-.fb-select__control,
-.fb-textarea__control,
-.fb-date__control {
-  width: 100%;
-  height: var(--fb-control-height);
+.studio-button {
+  height: var(--studio-control-height);
   padding: 0 12px;
-  font: inherit;
-  color: inherit;
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius-sm);
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-sm);
+  background: var(--studio-surface);
+  color: var(--studio-text);
 }
 
-.fb-textarea__control {
-  height: auto;
-  padding: 10px 12px;
-  line-height: 1.5;
-  resize: vertical;
+.studio-button:hover {
+  border-color: var(--studio-primary);
+  color: var(--studio-primary);
 }
 
-.fb-input__control:focus,
-.fb-select__control:focus,
-.fb-textarea__control:focus,
-.fb-date__control:focus {
-  border-color: var(--fb-primary);
-  box-shadow: var(--fb-ring);
-}
-
-.fb-input__control:disabled,
-.fb-select__control:disabled,
-.fb-textarea__control:disabled,
-.fb-date__control:disabled {
-  background: var(--fb-bg);
-  cursor: not-allowed;
-}
-
-.fb-input__clear {
-  position: absolute;
-  top: 50%;
-  right: var(--fb-space-sm);
-  padding: 2px 6px;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--fb-text-weak);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-radius: var(--fb-space-xs);
-  transform: translateY(-50%);
-}
-
-.fb-input__clear:hover {
-  color: var(--fb-text);
-  background: var(--fb-bg);
-}
-
-/* ---------- 按钮 ---------- */
-
-.fb-form__actions {
-  margin-top: var(--fb-space-lg);
-}
-
-.fb-button {
-  height: var(--fb-control-height);
-  padding: 0 18px;
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: var(--fb-radius-sm);
-}
-
-.fb-button--primary {
+.studio-button--primary {
+  background: var(--studio-primary);
+  border-color: var(--studio-primary);
   color: #fff;
-  background: var(--fb-primary);
 }
 
-.fb-button--primary:hover {
-  filter: brightness(1.06);
-}
-
-/* ---------- 编辑器外壳 ---------- */
-
-.fb-editor {
-  position: relative;
-  display: grid;
-  flex: 1;
-  grid-template-columns: 200px minmax(0, 1fr) 260px;
-  gap: var(--fb-space-lg);
-  align-items: start;
-  width: 100%;
-  max-width: 1180px;
-}
-
-.fb-editor__canvas {
-  max-height: calc(100vh - 160px);
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-.fb-editor__status {
-  margin: var(--fb-space-sm) 0 0;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-  text-align: right;
-}
-
-/* 右列：属性面板 + 历史记录，整列一起粘住，避免两个 sticky 互相盖住 */
-.fb-editor__side {
-  position: sticky;
-  top: 72px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--fb-space);
-  max-height: calc(100vh - 96px);
-  overflow: auto;
-}
-
-.fb-editor__side .fb-prop,
-.fb-editor__side .fb-history {
-  position: static;
-}
-
-/* 画布只做结构编辑：控件本体不接指针事件，点哪儿都是选中/拖拽整个字段 */
-.fb-canvas .fb-field__body {
-  pointer-events: none;
-}
-
-.fb-canvas__fields {
-  min-height: 80px;
-}
-
-/* ---------- 组件面板 ---------- */
-
-.fb-palette,
-.fb-prop,
-.fb-history {
-  position: sticky;
-  top: 72px;
-  padding: var(--fb-space);
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius);
-}
-
-.fb-palette__title,
-.fb-prop__title,
-.fb-history__title {
-  margin: 0 0 var(--fb-space-sm);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.fb-palette__list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.fb-palette__item {
-  display: flex;
-  gap: var(--fb-space-sm);
-  align-items: center;
-  padding: 8px 10px;
-  font-size: 13px;
-  cursor: grab;
-  background: var(--fb-bg);
-  border: 1px solid transparent;
-  border-radius: var(--fb-radius-sm);
-  user-select: none;
-  touch-action: none;
-}
-
-.fb-palette__item:hover {
-  border-color: var(--fb-primary);
-  background: var(--fb-primary-weak);
-}
-
-.fb-palette__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fb-primary);
-  background: var(--fb-surface);
-  border-radius: var(--fb-radius-sm);
-}
-
-.fb-palette__hint {
-  margin: var(--fb-space-sm) 0 0;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-/* ---------- 选中、工具条、落点、拖拽影子 ---------- */
-
-.fb-field {
-  position: relative;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: var(--fb-radius-sm);
-  cursor: grab;
-  touch-action: none;
-}
-
-.fb-field:hover {
-  border-color: var(--fb-border);
-}
-
-.fb-field--selected {
-  border-color: var(--fb-primary);
-  box-shadow: var(--fb-ring);
-}
-
-.fb-field--dragging {
-  opacity: 0.4;
-}
-
-.fb-field__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--fb-space-sm);
-}
-
-.fb-field__actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.fb-field:hover .fb-field__actions,
-.fb-field--selected .fb-field__actions {
-  opacity: 1;
-}
-
-.fb-field__action {
-  width: 22px;
-  height: 22px;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--fb-text-weak);
-  cursor: pointer;
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius-sm);
-}
-
-.fb-field__action:hover {
-  color: var(--fb-text);
-  border-color: var(--fb-text-weak);
-}
-
-.fb-drop-indicator {
-  height: 2px;
-  margin: 2px 0;
-  border-radius: 2px;
-  opacity: 0;
-}
-
-.fb-drop-indicator--active {
-  background: var(--fb-primary);
-  opacity: 1;
-}
-
-.fb-drag-ghost {
-  position: absolute;
-  z-index: 20;
-  padding: 6px 10px;
-  font-size: 12px;
+.studio-button--primary:hover {
   color: #fff;
-  pointer-events: none;
-  background: var(--fb-primary);
-  border-radius: var(--fb-radius-sm);
-  box-shadow: var(--fb-shadow);
+  opacity: 0.9;
 }
 
-/* ---------- 属性面板 ---------- */
-
-.fb-prop__empty {
-  margin: 0;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-.fb-prop__type {
-  margin: 0 0 var(--fb-space-sm);
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-.fb-prop__form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fb-space-sm);
-}
-
-.fb-prop__row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.fb-prop__name {
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-.fb-prop__input,
-.fb-prop__textarea {
-  width: 100%;
-  padding: 6px 8px;
-  font: inherit;
-  font-size: 13px;
-  color: inherit;
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius-sm);
-  outline: none;
-}
-
-.fb-prop__input:focus,
-.fb-prop__textarea:focus {
-  border-color: var(--fb-primary);
-  box-shadow: var(--fb-ring);
-}
-
-.fb-prop__textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  resize: vertical;
-}
-
-.fb-prop__switch {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--fb-primary);
-}
-
-/* ---------- 历史记录 ---------- */
-
-.fb-history__list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 240px;
-  padding: 0;
-  margin: 0;
-  overflow: auto;
-  list-style: none;
-}
-
-.fb-history__item {
-  padding: 6px 8px;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-  cursor: pointer;
-  border-radius: var(--fb-radius-sm);
-}
-
-.fb-history__item:hover {
-  color: var(--fb-text);
-  background: var(--fb-bg);
-}
-
-.fb-history__item--current {
-  font-weight: 600;
-  color: var(--fb-primary);
-  background: var(--fb-primary-weak);
-}
-
-
-/* ---------- M5：运行态（填值、错误、提交结果）与规则/条件编辑 ---------- */
-
-.fb-field--error .fb-field__label {
-  color: var(--fb-danger);
-}
-
-.fb-field__error {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--fb-danger);
-}
-
-.fb-field__error + .fb-field__error {
-  margin-top: 2px;
-}
-
-.fb-rules,
-.fb-condition {
-  margin: 16px 0 0;
-  padding: 12px;
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius);
-}
-
-.fb-rules__legend,
-.fb-condition__legend {
-  padding: 0 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fb-text-weak);
-}
-
-.fb-rules__empty {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-.fb-rule {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.fb-rule__kind,
-.fb-rule__custom,
-.fb-rule__value,
-.fb-rule__add,
-.fb-condition__field,
-.fb-condition__op,
-.fb-condition__value {
-  height: 30px;
-  min-width: 0;
-  padding: 0 8px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--fb-text);
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius-sm);
-}
-
-.fb-rule__kind,
-.fb-rule__custom {
-  flex: 1 1 auto;
-}
-
-.fb-rule__value {
-  width: 72px;
-  flex: 0 0 auto;
-}
-
-.fb-rule__remove {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--fb-text-weak);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--fb-radius-sm);
-  cursor: pointer;
-}
-
-.fb-rule__remove:hover {
-  color: var(--fb-danger);
-  border-color: var(--fb-border);
-}
-
-.fb-rules__add-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
-}
-
-.fb-rules__add-label {
-  flex: 0 0 auto;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-.fb-rule__add {
-  flex: 1 1 auto;
-}
-
-.fb-condition__row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--fb-text);
-}
-
-.fb-condition__hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-.fb-condition__body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-top: 8px;
-}
-
-.fb-condition__field {
-  flex: 1 1 100px;
-}
-
-.fb-condition__op {
-  flex: 0 0 auto;
-}
-
-.fb-condition__value {
-  flex: 1 1 80px;
-}
-
-.fb-condition__clear {
-  flex: 0 0 auto;
-  height: 30px;
-  padding: 0 10px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--fb-text-weak);
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius-sm);
-  cursor: pointer;
-}
-
-.fb-condition__clear:hover {
-  color: var(--fb-danger);
-}
-
-.fb-preview {
-  display: contents;
-}
-
-.fb-submitted {
-  max-width: 640px;
-  margin: 16px auto 0;
-  padding: 20px 24px;
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius-lg);
-  box-shadow: var(--fb-shadow);
-}
-
-.fb-submitted__title {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: var(--fb-text);
-}
-
-.fb-submitted__json {
-  margin: 0 0 12px;
-  padding: 12px;
-  overflow: auto;
-  font-size: 12px;
-  line-height: 1.6;
-  background: var(--fb-bg);
-  border-radius: var(--fb-radius);
-}
-
-/* ---------- M6：导入 / 导出 / 分享 ---------- */
-
-.fb-io {
-  padding: 12px;
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius);
-}
-
-.fb-io__title {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--fb-text);
-}
-
-.fb-io__row {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.fb-io__row .fb-button {
-  flex: 1 1 0;
-  text-align: center;
-}
-
-.fb-io__import {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.fb-io__file {
+.studio-import__file {
   display: none;
 }
 
-.fb-io__share {
-  display: block;
-  margin-bottom: 8px;
+.studio-main {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: var(--studio-space);
+  padding: var(--studio-space-lg);
+  align-items: start;
 }
 
-.fb-io__share-label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: var(--fb-text-weak);
+.studio-panel {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-lg);
+  box-shadow: var(--studio-shadow);
+  padding: var(--studio-space);
 }
 
-.fb-io__share-link {
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  font: inherit;
-  font-size: 11px;
-  color: var(--fb-text-weak);
-  background: var(--fb-bg);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius-sm);
+.studio-panel__title {
+  margin: 0 0 var(--studio-space-sm);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--studio-text-weak);
 }
 
-.fb-io__copy {
-  width: 100%;
-  margin-bottom: 4px;
-}
-
-.fb-io__warn,
-.fb-io__error,
-.fb-io__copied {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.fb-io__warn {
-  color: #b45309;
-}
-
-.fb-io__error {
-  color: var(--fb-danger);
-}
-
-.fb-io__copied {
-  color: var(--fb-primary);
-}
-
-.fb-share__hint {
-  max-width: 640px;
-  margin: 0 auto 12px;
-  font-size: 12px;
-  color: var(--fb-text-weak);
+.studio-empty {
+  padding: 48px var(--studio-space);
   text-align: center;
+  color: var(--studio-text-weak);
+  border: 1px dashed var(--studio-border);
+  border-radius: var(--studio-radius);
+  background: var(--studio-surface);
 }
 
-/* ---------- M7 补齐的字段类型 ---------- */
+.studio-textarea {
+  width: 100%;
+  min-height: 140px;
+  padding: 10px 12px;
+  font-family: var(--studio-mono);
+  font-size: 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius);
+  resize: vertical;
+}
 
-/* 单选 / 多选：一组 label，横排由 --inline 控制 */
-.fb-radio,
-.fb-checkbox {
+.studio-textarea:focus {
+  outline: none;
+  border-color: var(--studio-primary);
+  box-shadow: var(--studio-ring);
+}
+
+.studio-message {
+  margin-top: var(--studio-space-sm);
+  font-size: 13px;
+  color: var(--studio-success);
+}
+
+.studio-message--error {
+  color: var(--studio-danger);
+}
+
+.studio-pages {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.fb-radio--inline,
-.fb-checkbox--inline {
-  flex-direction: row;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: var(--studio-space-xs);
+  margin-bottom: var(--studio-space-sm);
 }
 
-.fb-radio__item,
-.fb-checkbox__item {
-  display: flex;
-  gap: 6px;
-  align-items: center;
+.studio-page-tab {
+  height: 28px;
+  padding: 0 10px;
   font-size: 13px;
-  cursor: pointer;
+  border: 1px solid var(--studio-border);
+  border-radius: 999px;
+  background: var(--studio-surface);
 }
 
-.fb-radio__control,
-.fb-checkbox__control,
-.fb-switch__control {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: var(--fb-primary);
-  cursor: pointer;
+.studio-page-tab--active {
+  border-color: var(--studio-primary);
+  background: var(--studio-primary-weak);
+  color: var(--studio-primary);
 }
 
-/* 开关：控件 + 文案一行 */
-.fb-switch {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.fb-switch__control {
-  width: 17px;
-  height: 17px;
-}
-
-.fb-switch__text {
-  color: var(--fb-text-weak);
-}
-
-/* 评分：一组星星按钮，没有输入框 */
-.fb-rating {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.fb-rating__star {
-  padding: 0 2px;
-  font-size: 22px;
-  line-height: 1;
-  color: var(--fb-border);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  transition: color 0.1s ease, transform 0.1s ease;
-}
-
-.fb-rating__star:hover {
-  transform: scale(1.1);
-}
-
-.fb-rating__star--on {
-  color: #f59e0b;
-}
-
-/* 分隔线：只有一条线（可带文字，可虚线） */
-.fb-divider {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  color: var(--fb-text-weak);
-  border-top: 1px solid var(--fb-border);
-}
-
-.fb-divider--dashed {
-  border-top-style: dashed;
-}
-
-.fb-divider__text {
-  padding: 0 8px;
-  font-size: 12px;
-  background: var(--fb-surface);
-  transform: translateY(-50%);
-}
-
-/* 分组：容器只画框与描述，标签由宿主渲染（编辑器/运行态各一套） */
-.fb-group {
-  display: block;
-}
-
-.fb-group--bordered {
-  padding: var(--fb-space) var(--fb-space) 0;
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius);
-}
-
-.fb-group__desc {
-  margin: 0 0 var(--fb-space-sm);
-  font-size: 12px;
-  color: var(--fb-text-weak);
-}
-
-.fb-field-list {
+.studio-list {
   display: flex;
   flex-direction: column;
-  gap: var(--fb-space-xs);
+  gap: var(--studio-space-xs);
 }
 
-/* 运行态的分组：标题在框里，子字段照常排 */
-.fb-group-field {
-  display: block;
-  padding: var(--fb-space) var(--fb-space) 0;
-  margin-bottom: var(--fb-space);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius);
+.studio-node-row {
+  display: grid;
+  grid-template-columns: 92px 78px minmax(0, 1fr) 108px 108px;
+  gap: var(--studio-space-sm);
+  align-items: center;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-sm);
+  background: #fbfcfe;
 }
 
-.fb-group-field > .fb-field__label {
-  color: var(--fb-text-weak);
+.studio-node-row__id {
+  font-family: var(--studio-mono);
+  font-size: 12px;
+  color: var(--studio-text-weak);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* 编辑态：分组自己的字段列表要能接住拖拽落点 */
-.fb-field--container > .fb-field__body > .fb-field-list {
-  min-height: 56px;
-  padding: var(--fb-space-xs);
-  border: 1px dashed var(--fb-border);
-  border-radius: var(--fb-radius-sm);
+.studio-node-row__type {
+  font-weight: 600;
+}
+
+.studio-node-row__text {
+  color: var(--studio-text-weak);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-node-row__pos,
+.studio-node-row__size {
+  font-family: var(--studio-mono);
+  font-size: 12px;
+  color: var(--studio-text-weak);
+}
+
+.studio-counts {
+  display: flex;
+  gap: var(--studio-space);
+  margin-top: var(--studio-space-sm);
+  font-size: 13px;
+  color: var(--studio-text-weak);
+}
+
+.studio-counts strong {
+  color: var(--studio-text);
 }

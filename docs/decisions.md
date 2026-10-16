@@ -1,244 +1,85 @@
-# 架构取舍记录
+# 架构决策记录（ADR）
 
-按里程碑顺序追加。每条都写清「选了什么」和「为什么不选另一个」——
-面试里被追问「为什么这么设计」时，答案在这里，不在代码注释里。
+> 记录**为什么**这么设计，以及每个决定的代价。上一代表单搭建器的决策已随计划一起归档到 [archive/decisions-v1-表单搭建器.md](archive/decisions-v1-表单搭建器.md)。
+> 功能级设计见 [功能文档-v2-可视化页面搭建器.md](功能文档-v2-可视化页面搭建器.md)，里程碑与验收见 [../PLAN.md](../PLAN.md)。
 
-## D1 扁平的 `fields[]` + `parentId`，而不是嵌套树
+## D1：元素用树（`Record<NodeId, SceneNode>` + `parentId` + `order`），不用扁平数组
 
-选扁平数组：按 id 查字段 O(1)、跨容器拖动只改 `parentId` 和 `order` 两个数字、
-一个补丁只影响一条记录。
+**决定**：文档里每个页面持有一张 `nodes` 表：`Record<NodeId, SceneNode>`，节点靠 `parentId` + `order` 组织成树；整页只有**一个** `parentId === null` 的根 frame（`Page.root`）。
 
-代价要说清楚：层级到三四层、或者出现自由布局时，嵌套树更自然。这个项目只有
-一层分组（`group`），所以扁平是划算的。
+**理由**：
+- 参考实现 WebBuilder 的 `elements[]` 扁平数组让「组合 / 成组 / 容器内布局 / 层级 z-index」全都做不了（见功能文档 S2、S3）。
+- 按 id 查节点 O(1)（后续 `layout`、`codegen`、AI 补丁都要频繁查节点）。
+- 跨容器拖动只改两个数字（`parentId` + `order`），补丁天然最小。
+- 断点覆盖挂在节点上，树形结构让「继承父级样式」可以自然上溯。
 
-## D2 结构变更只有一种表达：`Patch`
+**代价**：
+- 数组顺序不再是唯一真相，`order` 必须维护成同级 `0..n-1` 连续 —— 由 `normalizeNodeOrder()` 在每次写入后统一收拾，任何绕过它的代码都会让 JSON 不稳定。
+- 层级深了以后「找祖先容器」要上溯（`isDescendantOf` 带 `seen` 防环，因为损坏数据里可能有环）。
+- 扁平数组顺序渲染的简单性没了：渲染要按树前序（`treeOf` / `flattenTree`）。
 
-insert / remove / update / move 四种补丁，`applyPatch` 是纯函数、`invertPatch` 直接
-给出逆补丁。撤销重做因此不需要「保存整个 schema 的快照」：
+## D2：`Doc.version = 2`，用迁移而不是就地兼容
 
-- 200 个字段的快照约 100KB，一条补丁不到 500B；
-- 100 步历史：快照方案约 10MB，补丁方案约 50KB（差 200 倍）。
+**决定**：v2 文档必须带 `version: 2` 与 `pages` 数组；v1（WebBuilder 导出 / localStorage 存档）走 `migrateFromWebBuilderV1()` 一次性转换。
 
-## D3 `applyPatch` 之后统一 `normalizeFieldOrder`（M1 实测出来的缺陷）
+**理由**：导入、读档、分享链接、将来的 AI 产出都要先判断「这是什么东西」。有显式版本就能给出可读的错误（「不是有效的项目数据（需要 v2 文档或 WebBuilder v1 项目）」），而不是让半个文档进内存。
 
-最初按 PLAN §7 实现：insert 把新字段追加到数组末尾。结果「删除中间字段 → 撤销」
-之后数组变成 `[a, c, b]`——`order` 值是对的，但**同一逻辑状态序列化成了不同的 JSON**，
-逐字节快照比对直接失败。
+**代价**：旧数据不能直接用，必须迁移；迁移逻辑（`migrate.ts`）要长期维护，且它是**单向**的（v2 不再导出成 v1）。
 
-修法：`tree.ts` 提供 `flattenTree` / `normalizeFieldOrder`（树前序 + 孤儿字段按
-order、id 兜底排到末尾），`applyPatch` 在返回前统一规范化一次。
+## D3：所有外部输入一律先收敛（`normalizeSchema` / `normalizeDoc`）
 
-因为：同一逻辑状态必须序列化成同一份 JSON，否则撤销后的等值判断、localStorage 的
-反复重写、导出文件的 diff 全都会变得不可预测。
+**决定**：导入文件、localStorage 存档、将来的 AI 输出，都要先过收敛层才允许进 store。
 
-## D4 拖拽只在「放手」时提交一个补丁，不产生中间态
+**理由**：不能信任任何外部来源。收敛层保证内存里的文档永远满足不变量，下游（布局引擎、代码生成、命中测试）就不用到处写防御代码。
 
-PLAN §8 建议「Escape 时用逆补丁取消」。实测里更简单的做法是：拖动过程完全不碰
-schema，只在 `pointerup` 时按落点提交一个 `move` / `insert`。
+**收敛规则**（M0 已实现，逐条有测试）：
+- 未知组件类型 → `rect`；缺 id → 生成；重复 id → 换新 id。
+- `parentId` 指向不存在 / 指向自己 / 形成环 → 挂回根 frame。
+- 同级 `order` 稳定排序后重排成 `0..n-1`；最后整表按树前序规范化数组摆放。
+- 坐标 / 尺寸夹取（`MAX_COORD = 100_000`，`w/h ≥ 1`）；文本截断（`MAX_TEXT = 20_000`）。
+- 样式只留白名单键；`props` 只留内容键；`meta.hidden/locked` 强制布尔；空 `overrides` 对象删掉。
+- 页数 ≤ 50；页名 ≤ 40 字符；`viewport` 夹取 200..10000；`breakpoints` id 去重并按 `minWidth` 降序。
 
-好处：Escape 只需要清空本地状态，天然安全；拖动时也不会往历史栈里塞几十条记录。
-代价：拖动过程中画布不反映「已移动」，只有落点指示线——这正是主流编辑器的手感。
+**代价**：收敛会**静默修正**用户数据 —— 一个越界坐标被夹取、一个未知类型被换成矩形，用户不会收到提示。所以收敛逻辑必须逐条有测试（`tests/unit/schemaNormalize.spec.ts` 31 个用例），并且将来要在导入结果里回显「修正了什么」。
 
-## D5 用 window 监听指针事件，而不是 `setPointerCapture`（偏离 PLAN §8）
+## D4：v1 迁移只做保守映射，不猜用户意图
 
-PLAN 把 `setPointerCapture` 列为四件必做之一。实现时改成在 `pointerdown` 时给
-window 挂 `pointermove / pointerup / pointercancel / keydown / blur`。
+**决定**：`migrateFromWebBuilderV1()` 把 v1 的 22 个属性按白名单分桶到 `style` / `props` / `meta`；未知类型回落 `rect`，越界值夹取，`element.name` 搬进 `meta.name`，`hidden` / `locked` 保留 v1 的 `Boolean(value)` 语义。
 
-因为：①事件委托到 window 后，字段在拖动中被重渲染也不会丢监听；
-②jsdom 没有 `setPointerCapture`，用它写出来的逻辑在本项目的测试环境里无法验证，
-而拖拽恰恰是最需要测试的部分；③`blur` 兜底解决了「鼠标在窗口外松手」导致状态卡住
-的问题（`setPointerCapture` 同样会丢）。
+**理由**：迁移是用户数据的一次性入口，宁可少搬也不要把语义搬错。v1 的 `normalizeProps` 本来就把 `hidden/locked` 转成布尔、把数值夹到 `0..1000`、把 `align` 限制在 `left/center/right` —— v2 沿用同样的语义，用户看到的隐藏/锁定状态不会因为升级而变化。
 
-代价：指针移出画布仍然一路跟随（对拖拽排序来说反而是想要的行为）。
+**代价**：v1 的某些表达在 v2 里没有等价物（例如「只有 x/y/w/h 的绝对定位」在 v2 里是 `layout.mode = 'free'` 的一种特例），迁移后需要用户在编辑器里手动改成别的布局模式。
 
-## D6 属性控件协议多一个 `options`（偏离 PLAN §5）
+## D5：类型叫 `SceneNode`，不叫 `Node`
 
-PLAN §5 的 `PropControl` 是 `text|textarea|number|switch|color|select`。`select`
-字段的 `options` 本身是 `{label,value}[]`，用 text/textarea 都表达不了，所以加了一个
-`options` 控件：面板里用「每行一条 `label=value`」的纯文本编辑，可粘贴。
+**决定**：文档节点类型名是 `SceneNode`（`src/core/schema/types.ts`）。
 
-因为：字段的全部知识都应该写在字段描述对象里，面板里不该出现 `if (type === 'select')`。
+**理由**：`Node` 与 DOM / TypeScript 环境里的全局 `Node` 撞名，`core/` 之外的组件代码迟早会同时用到两者，重名会让类型推断和 import 都变得别扭。
 
-## D7 加字段不改组件
+**代价**：与 WebBuilder 术语、与通用「节点」叫法有一点出入，文档和代码注释里需要说明 `SceneNode` 就是页面节点。
 
-组件面板、属性面板、渲染器都只认注册表：面板遍历 `listDescriptors()`，属性面板遍历
-`propSchema`，渲染器拿 `descriptor.component`。M7 要补到 11 类字段，验收方式就是
-「加一个描述对象 + 一个哑组件」，不碰任何既有组件。
+## D6：`layout.size` 同时接受嵌套 `{w,h}` 与平铺 `w/h`
 
-## D8 编辑态画布的控件不接指针事件
+**决定**：`normalizeLayout()` 里 `const size = isRecord(source.size) ? source.size : source`，默认用 fallback 尺寸补齐。
 
-`.fb-canvas .fb-field__body { pointer-events: none }`：画布只做结构编辑，点控件任何
-位置都落到整个字段上（选中 / 拖拽）。填值在预览页。
+**理由**：模型里 `size` 是 `SizeSpec`（`{kind:'fixed'|'hug'|'fill'|'ratio', value?}`），必然嵌套；但手写测试数据、脚本生成的数据、以及 AI 产出的草稿更愿意写成平铺的 `w/h`。两条都收，成本极低。
 
-配合「整块可按下 + 5px 阈值」的判定：按下先选中，位移超过 5px 才变成拖拽，所以不需要
-额外的拖拽手柄。
+**代价**：两种写法并存会有歧义风险（`{size:{…}, w: 10}` 时以 `size` 为准）。已在注释与测试里写明。
 
-## D9 自动保存：版本化 key + 300ms 防抖
+> 这条决定的来历：M0 第一次跑测试就暴露了一个真 bug —— 原实现直接读 `source.w`，于是所有 `layout.size.w` 都被忽略、永远回落默认值。类型是嵌套的，代码却按平铺读，**只有测试能发现这种不一致**。
 
-key 是 `form-builder:v1:schema`，读档时 `version !== 1` 直接当没有存档。
-写盘防抖 300ms，一次拖拽只写一次盘，连续输入也不会每敲一个字符写一次。
+## D7：`core/` 禁止 import Vue / 组件 / store，用 ESLint 强制
 
-配额满或隐私模式下 `setItem` 抛错一律静默：存不下不是致命错误，不该打断编辑。
+**决定**：`eslint.config.js` 里对 `src/core/**/*.ts` 开 `no-restricted-imports`，禁止 `vue`、`vue-router`、`pinia`、`@vue/*`、`@/components/*`、`@/stores/*`、`@/composables/*`、`@/fields*`。
 
-## D10 拖拽数学用假 DOM 测，不用浏览器
+**理由**：`core/` 是这个项目唯一能在没有 DOM、没有 Vue 的环境里跑的层（迁移、收敛、布局引擎、代码生成都要能纯函数式测试）。口头约定会腐烂，规则要能被 CI 检查。
 
-`toCanvasPoint` / `findDropIndex` / `edgeScrollDelta` / `visualIndexToOrder` 都是纯函数，
-输入只有矩形和坐标，所以测试里用普通对象当替身（`{ getBoundingClientRect }`）就够，
-不需要为了数学去搭真 DOM。
+**代价**：想在 `core/` 里复用组件层的工具函数时会被挡住，需要先把那个函数挪进 `core/` 或在组件层重新实现。另外容器判断只能靠类型字面量（`type === 'group'`），不能问字段注册表。
 
-组件层再用 `vi.spyOn(Element.prototype, 'getBoundingClientRect')` 给 jsdom 里的字段
-排一条竖线，就能跑完整的「按下 → 移动 → 放手」链路。
+## D8：每页唯一根 frame（`Page.root`）
 
-## D11 历史存「补丁 + 合并窗口」，输入不按字符记
+**决定**：一页的 `nodes` 表里恰好有一个 `parentId === null` 的节点，就是 `root`（`type: 'frame'`，尺寸取自 `viewport`），所有顶层元素都是它的子节点。
 
-`history` store 存的是 `{label, patch, mergeKey, at}`，`base` 只保存当前 schema。
-`mergeKey + 400ms` 决定连续输入要不要合并：同一字段同一批属性的连续 `update`
-合并成一条，`before` 保留最早的值、`after` 取最新的；结构类补丁（insert/remove/move）
-一律不合并——把两步插字段合成一步撤销会很怪。
+**理由**：渲染、命中测试、布局计算、导出、断点都需要一个明确的「画布容器」。有唯一根之后，「哪些是顶层元素」= `childrenOf(nodes, root)`，「整棵树」= `treeOf` 从 root 展开，不必特判多根。
 
-因为：不合并的话在属性面板里打「张三丰」三个字要按三次 Ctrl+Z，而且历史面板会被
-字符级噪音塞满。测试里 100 步历史的实际内存只有几十 KB。
-
-## D12 撤销/重做是全局快捷键，删除/复制不是
-
-`Ctrl/Cmd+Z`、`Ctrl/Cmd+Shift+Z`（和 `Ctrl+Y`）在焦点位于输入框时也生效——撤销是
-应用级动作，用户不该先点空白处才能撤销。`Delete` 和 `Ctrl+D` 仍然被输入框保护
-（在输入框里 Delete 是删字，Ctrl+D 是浏览器书签）。
-
-## D13 撤销后失效的选中会被同步清掉
-
-`watch(schema, ..., { flush: 'sync' })`：撤销或删除之后，如果选中的字段已经不在
-schema 里就清空选中。用 `sync` 而不是默认的 `pre`，是为了让「撤销 → 断言选中为空」
-这种同步逻辑不必依赖 nextTick。
-
-## D14 真实浏览器验证的缺口（诚实记录）
-
-拖动排序、指针捕获这些行为在本机只能用 jsdom + 合成事件验证（opencli 的浏览器桥
-扩展没连上、本机也没装 Chrome/Edge），所以「真实鼠标拖拽」这一步没有自动化证据，
-靠 `npm run dev` 手动确认。这一点写进 README，不假装它是测过的。
-
-## D15 分组的显示条件会连带子孙（M5 补上的缺口）
-
-M1 的 `visibleFields` 只看字段自己的 `visibleWhen`，于是「宠物信息」分组隐藏了、组里的
-「宠物名」还在校验。M5 改成：先收集条件为假的分组，再沿 `parentId` 上溯，祖先链上有
-隐藏分组就一起隐藏（`Set` 防环）。顺带把返回值排成**显示顺序**（复用 `normalizeFieldOrder`
-建一个 id → 下标表），这样渲染方直接 `v-for` 就行，不用关心 `fields` 数组的摆放。
-
-因为：隐藏分组里的字段如果继续校验，用户会因为「看不见的字段」被红色提示挡住提交——
-这是最难排查的一类 bug。顺手修的排序问题在 M5 测试里当场暴露（`render.spec.ts`
-「渲染顺序由 order 决定」直接红了）。
-
-## D16 隐藏字段的值保留，但不进提交结果
-
-`values` 里留着用户填过的值（条件切回来时不用重填），`submit()` 只挑**当前可见**字段
-组成 FormValues。因为：提交一份包含用户看不见字段的数据，后端要么存下幽灵数据，要么
-在服务端再做一遍同样的条件判断——条件判断的权威只应该在 schema 里有一份，也就是前端。
-
-## D17 校验错误「随改随清」，但只在下次校验时重建整张表
-
-`setValue` 清掉这个字段自己的错误（别的字段的错误留着），`validate()` 每次从可见字段
-重建整张错误表。于是字段变隐藏后它的旧错误会自然消失，不需要额外的事件去清。
-
-## D18 属性面板里规则与条件编辑也走同一条补丁出口
-
-`RuleEditor`/`ConditionEditor` 是哑组件，整体 emit 出新的 `rules` / `visibleWhen`，
-属性面板再交给 `updateField` —— 于是它们自动获得历史栈、合并窗口（`mergeKey`
-`update:<id>:rules` / `update:<id>:visibleWhen`）和 localStorage 自动保存，
-没有为「改规则」单独开一条写入路径。
-
-## D19 导入与读档都先过 `normalizeSchema`
-
-手写的 JSON、分享链接里的数据、上个版本存下的档，都可能在字段里缺 `props`、`order` 乱掉、
-`parentId` 指向一个已经删掉的字段、两个字段用同一个 `name`。与其在渲染器、校验器、
-拖拽逻辑里到处写防御代码，不如在**入口**收敛一次：
-
-- 未知 `type` → `text`（不认识就降级成最普通的字段，而不是让渲染器抛「未注册的字段类型」）
-- 重复 `id` → 后来者换新 id（id 是补丁定位字段的唯一依据，撞了整条历史都错）
-- 重复 `name` → 后来者变成 `name1`（`name` 是提交结果的键）
-- `parentId` 指向不存在的字段 → 挂回根层（孤儿字段会从画布上消失，比挪个位置糟糕得多）
-- 父子成环 → 断开（否则 `buildTree` 直接死循环）
-- 同级 `order` 重排成 `0..n-1`（手改过的 JSON 里可能是 5、5、9）
-- 非法 `rules` / `visibleWhen` 丢掉，合法的原样保留
-
-代价是「导入会悄悄改用户的数据」。这是有意的取舍：这些数据本来就是坏的（点不出来、
-渲染不出来），而且改完在界面上是可见的，比报错拒绝导入更符合「分享链接打开就能填」。
-
-## D20 分享链接用 lz-string，超过 2000 字符就劝人改用导出
-
-`compressToEncodedURIComponent(JSON.stringify(schema, null, 2))` →
-`/share?d=...`，解不开或解出来不是表单就显示「分享链接不完整或已损坏」。
-上限定 2000：主流浏览器和聊天工具的 URL 上限在这个量级，超了就是「发出去被截断，
-对方看到坏链接」，不如当场提示。所以分享是**短表单的便利通道**，长表单仍然走导出 JSON。
-
-## D21 分享页写进 store 但 `persist: false`
-
-分享页需要一个能填、能校验的表单，而 `runtime` store 是绑在 `schema` store 上的，
-所以解出来的 schema 必须进 store。但直接 `setSchema` 会触发自动保存，
-把访客自己 localStorage 里的草稿覆盖掉——打开一条别人的链接不该有这种副作用。
-于是 `setSchema(next, { persist: false })` 把这家 store 的自动保存关掉，只读不写。
-（测试里就是这么断言的：先存一份草稿，打开分享链接，等过防抖时间，草稿仍在。）
-
-## D22 描述符新增 `hasValue`：分隔线/分组不是「有值的字段」
-
-11 类字段里有两类根本不产出值：`divider`（分隔线）和 `group`（容器）。如果没有标记，
-它们会以 `undefined` 的形态出现在提交结果里（`{address: '', divider1: undefined}`），
-下游分不清「用户没填」和「这个字段本来就没有值」。
-
-所以 `ComponentDescriptor` 加 `hasValue?: boolean`（缺省 `true`，只有这两类显式 `false`），
-`submit()` 跳过它们。这是相对 PLAN §5 的**第二处协议扩展**（第一处是 M2 的
-`PropControl: 'options'`），两处都补在这里而不是偷偷改代码。
-
-## D23 跨容器拖拽用几何判定：取包含指针的最深容器
-
-拖进分组最初是坏的：`measure()` 只用**源父级**（`state.parentId`）算插入位，
-所以指针明明在分组框里，落点却算在根层。改法是一步纯几何判断：
-
-1. 取画布内所有 `[data-container="true"]` 的字段元素，排除被拖字段自己与它的子孙
-   （否则能把分组拖进自己里面，直接造出一个环）；
-2. 用 `findContainer(指针, 命中列表)` 取**深度最大**的那个容器；
-3. 再在那一层里用 `findDropIndex` 数插入位，`visualIndexToOrder` 用 `movingId` 归一化
-   「自己占了一个位置」的偏移。
-
-都不命中就返回 `null`（根层），**不回退到源父级**：把字段从分组里拖到画布空白处，
-本来就该移出分组。`findContainer` 是纯函数，测试用假矩形就能覆盖「套两层时取最深」，
-组件层再测一条完整的「根层字段拖进分组后 `parentId` 变了、组内顺序按落点算」。
-
-## D24 嵌套渲染用「按文件名自引用」的递归组件
-
-编辑器是 `FieldList → FieldWrapper → FieldList`，运行态是
-`RuntimeFieldList → FieldRuntime / 自引用`，两个递归组件各管一条路径，控件仍然共用
-`FieldControl` + `components/shared/fields/*`。分组能无限套，而「编辑态和运行态吃同一份
-schema、同一批控件」这条 M2 的保证没有破。
-
-这里踩到一个真实的坑：`FieldList` 一开始忘了把整棵 `fields` 传给 `FieldWrapper`，
-`FieldWrapper` 的 `fields` 默认值是 `[]`，于是分组的子字段**整体消失**（画布上只剩
-分组本身和根层字段）。`group.spec.ts` 第一条断言就抓到了它——这也是为什么「同一份
-schema 在两条路径渲染出的标签序列一致」值得写成测试。
-
-## D25 Vue 模板里 `$event` 只是第一个参数（真实 bug 记录）
-
-四个转发点原来写的是 `@update:value="emit('update:value', $event[0], $event[1])"`。
-Vue 模板里的 `$event` 只代表 emit 的**第一个**参数，于是多参数事件的转发变成了
-「把字段名当字符串取下标」：`'name'` → `'n'`、`'age'` → `'a'`，runtime 的 `values`
-里出现了 `{n: 'a', a: 'g'}` 这种键，条件字段也因此不显示。
-
-修法：多参数事件一律用内联箭头转发（`@update:value="(name, value) => emit(...)"`）。
-教训是「哑组件 + 多参数 emit」这条链路必须有一条端到端断言（运行态 spec 里
-`expect(emitted()?.at(-1)).toEqual(['name', '张三'])` 就是它）。
-
-## D26 分层用 ESLint 规则守住，而不是靠自觉
-
-`src/core/**` 只放纯逻辑（不 import Vue、组件、store、字段注册表），这条承诺在
-`eslint.config.js` 里用 `no-restricted-imports` 强制：即使以后有人图方便在
-`validation.ts` 里 import 注册表，`npm run lint` 会直接失败。core 能被纯单测覆盖
-（98%+）、能脱离框架跑，靠的就是这条规则。
-
-## D27 性能数字来自 jsdom，不是浏览器（如实标注）
-
-测量脚本临时挂在 tests 里跑完即删（PLAN §14 允许临时测量代码）：200 字段挂载
-编辑态 117–215ms（首次含模块预热）、运行态 71–83ms；100 次 `addField` 合计 111ms
-（每次约 1.1ms）；拖拽每次命中的数学开销 0.01ms（60fps 的预算是 16.7ms/帧）；
-100 步历史的 `undoStack` JSON 仅 28.1KB。
-
-这些数字来自 jsdom + Node 24，**不是浏览器**。所以 README 里写的是「在 jsdom 里量的」
-而不是「浏览器里 60fps」，并把「真实鼠标拖拽的手感」列为没有自动化证据的缺口（D14）。
+**代价**：用户不能在页面上放两个互不相关的根元素（想并排就得放进一个容器）。这一点与 WebBuilder 的「任意绝对定位元素并列」不同，是升级布局能力必须付的代价。

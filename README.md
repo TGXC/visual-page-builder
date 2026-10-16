@@ -1,172 +1,93 @@
-# 可视化表单搭建器
+# Studio 可视化页面搭建器
 
-一个**不依赖任何拖拽库、UI 组件库**的表单搭建器：左边组件面板、中间画布拖拽排版、右边属性/规则/条件面板，
-再配一个预览页把同一份 schema 渲染成可填写的表单，支持撤销重做、导入导出、分享链接。
+一个**不依赖任何拖拽库、UI 组件库**的可视化页面搭建器：把 WebBuilder 那套「拖拽排版 + 图层 + 属性面板 + 代码导出」的量级，
+升级成**元素树 + 布局引擎 + 断点覆盖 + 组件体系 + AI 只产出补丁**的架构。
 
-技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vue Router + Vitest。拖拽用原生 Pointer Events 手写。
+技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-```
-编辑页 /            预览页 /preview           分享页 /share?d=...
-┌──────────┬──────────────────┬──────────┐   ┌──────────────┐   ┌──────────────┐
-│ 组件面板 │   画布（拖拽）    │ 属性/规则 │   │ FormRenderer │   │ 解压链接里的 │
-│ 11 类字段│ 落点指示线/工具条 │ 历史/导入 │   │ 绑值+校验+   │   │ schema 再渲染│
-│          │                  │ 导出/分享 │   │ 提交结果     │   │ 同一套控件   │
-└──────────┴──────────────────┴──────────┘   └──────────────┘   └──────────────┘
-      │              │                 │              ▲                  ▲
-      ▼              ▼                 ▼              │                  │
-  fields/registry（描述符：默认值 / 属性面板 / 控件）  │                  │
-      └──────────────┴─────────────────┴──────────────┴──────────────────┘
-                              core/（纯逻辑，不 import Vue）
-        types · id · tree · patch · validation · schema · share
-```
+> **当前进度：M0（地基 + WebBuilder v1 迁移）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
+> 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
+
+---
+
+## 为什么不是 WebBuilder 的复制品
+
+参考实现 [visual-builder](https://github.com/Noah-Deleveq/visual-builder)（单文件 `index.html`，1648 行）能跑通 18 项能力，但天花板来自它的数据模型：
+
+| # | 结构性短板 | 代码证据 | Studio 的做法 |
+| --- | --- | --- | --- |
+| S1 | 只有绝对定位，不响应式、易溢出 | `elStyle()` 恒 `position:absolute` | 布局引擎 `computeLayout()`：`free / vertical / horizontal / grid` + `fixed / hug / fill / ratio` |
+| S2 | 元素扁平、无父子关系 | `pages=[{elements:[]}]` | `Record<NodeId, SceneNode>` + `parentId` + `order`，唯一根 frame |
+| S3 | 层级 = 数组顺序 | `ctxLayer()` 靠 `splice` | 显式 `order` + 树前序渲染 |
+| S4 | 响应式是假的（只改画布宽高） | `handleViewport()` 只改 `curW/curH` | `Breakpoint[]` + `Node.overrides[breakpointId]` 继承/覆盖，导出 media query |
+| S5 | 15 类组件写死 | `VALID_TYPES` / `normalizeProps` 硬编码 | 插件式 `ComponentDescriptor`（`toHtml` / `aiDoc` / `overridable`） |
+| S6 | 导出全内联样式，CSS 页签是占位 | `buildHtml()` 拼 `style="…"` | 干净的 HTML + 独立 CSS，另有 Vue SFC 与静态多页 zip |
+
+## M0 已经做了什么
+
+1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
+2. **收敛层 `normalizeSchema`**：任何来源（导入 / 读档 / AI 产出）都要先过一遍 —— 未知类型回落 `rect`、非法父级挂回根、断环、id 去重、同级 `order` 重排成 `0..n-1`。**同一逻辑状态必须序列化成同一份 JSON。**
+3. **WebBuilder v1 一键迁移**：粘贴或选择一个 v1 导出文件（`{app:'visual-builder', version:1, pages:[{elements:[…]}]}`）或 localStorage 存档（`visual_builder_v1`），迁移成 v2 文档：22 个属性按白名单拆进 `style / props / meta`，`hidden` / `locked` 保留布尔语义，`name` 变成图层名，越界坐标与尺寸夹取，页数 ≤50、每页元素 ≤2000。
+4. **最小可用壳**：顶栏「新建项目 / 导入 JSON 文件」、粘贴 JSON 导入、页面标签切换、元素列表（id / 类型 / 文案 / 位置 / 尺寸）。
 
 ## 快速开始
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm run test       # 单元 + 组件测试
-npm run coverage   # 覆盖率（core/ 阈值 90%，不到就失败）
-npm run lint       # ESLint（含分层规则）
+
+npm run dev        # 开发服务器
+npm run test       # Vitest 全量单测 + 组件测试
+npm run coverage   # 覆盖率（阈值：语句/分支/函数/行 ≥ 90）
+npm run lint       # ESLint（含 core 分层规则）
 npm run build      # vue-tsc 严格类型检查 + 生产构建
-npm run preview    # 预览 dist/
+npm run preview    # 预览生产构建
 ```
 
-## 功能
-
-| 能力 | 说明 |
-| --- | --- |
-| 11 类字段 | 单行文本、多行文本、数字、下拉、单选、多选、开关、日期、评分、分隔线、分组（容器可嵌套） |
-| 拖拽排版 | 面板拖入、字段重排、**跨容器拖进分组**、拖动中落点指示线、边缘自动滚动、Escape 取消 |
-| 选中与工具条 | 点字段选中（移动 < 5px 算点击）、复制（Ctrl+D）、删除（Delete） |
-| 属性面板 | 完全由描述符的 `propSchema` 生成；加一类字段只需写描述符 + 一个哑组件 |
-| 校验规则 | required / minLength / maxLength / pattern / min / max / custom（手机号、邮箱、身份证） |
-| 显示条件 | `eq/neq/in/gt/lt/truthy`；**分组隐藏会连带子孙**，隐藏字段不校验也不进提交结果 |
-| 撤销重做 | 补丁式历史 + 400ms 输入合并，HistoryPanel 可跳转到任意一步，Ctrl+Z / Ctrl+Shift+Z |
-| 自动保存 | localStorage（`form-builder:v1:schema`）300ms 防抖，坏数据静默忽略 |
-| 导入导出 | 导出 `<表单名>.json`；导入任何 JSON 都先过 `normalizeSchema` 收敛 |
-| 分享链接 | lz-string 压缩进 `?d=`，超过 2000 字符提示改用导出；打开链接不覆盖访客草稿 |
-| 预览提交 | 同一份 schema 走 `FormRenderer`，提交输出 FormValues，校验失败滚动到第一个出错字段 |
-
-## 三条核心取舍
-
-**1. 扁平存储 + 补丁，而不是嵌套树 + 快照。**
-字段存在一个数组里，靠 `parentId` + `order` 表达层级；每次结构变更产出一个小补丁
-（`insert/remove/update/move`），历史栈存的就是这些补丁。
-
-- 按 id 找字段 O(1)（`Map`），跨容器拖动只改两个数字（`parentId`、`order`）；
-- 200 字段的完整快照约 21.5KB，补丁平均不到 500B，100 步历史实测只有 **28.1KB**；
-- 代价：只有一层分组时很自然，真要做三四层嵌套或自由布局，嵌套树更合适——这是这个方案
-  明确的适用边界，不装作通用。
-- 每个补丁都会过一次 `normalizeFieldOrder`：同一逻辑状态必须序列化成同一份 JSON，
-  否则撤销之后 `JSON.stringify` 比对不上、localStorage 会反复重写。
-
-**2. 不引拖拽库、不引 UI 组件库。**
-拖拽是自己写的 `useDragField`：`pointerdown` 待命 → 位移过 5px 才进入拖拽 → 用
-`getBoundingClientRect` 做命中测试 → 放手时提交一个补丁。数学部分（坐标换算、插入位、
-边缘滚动、跨容器判定）全是纯函数，测试里用假矩形就能覆盖；组件层用
-`vi.spyOn(Element.prototype, 'getBoundingClientRect')` 排一条竖线，跑完整的按下-移动-放手链路。
-
-代价也很实在：jsdom 里没有 `setPointerCapture`，所以监听挂在 `window` 上，再补一个
-`blur` 兜底（鼠标在窗口外松手不会卡住拖拽状态）。
-
-**3. 一套 schema、两条渲染路径、共用控件。**
-编辑器画布（`Canvas → FieldList → FieldWrapper → FieldList` 递归）只做结构编辑，字段控件一律
-`pointer-events: none`；运行态（`FormRenderer → RuntimeFieldList`）绑值、校验、显示错误。
-两条路径用的是**同一批哑组件**（`components/shared/fields/*`，只收 `value`/`props` 并
-`emit('update:value')`，不知道自己在哪里），字段类型到组件靠注册表查。
-
-好处是「加一类字段」只动描述符和哑组件；坏处是两条路径的可见性判断必须一致，所以有测试
-专门断言两边渲染出的标签序列完全相同。
-
-## 分层与目录
+## 目录结构
 
 ```
 src/
-  core/        纯逻辑，不 import Vue/组件/store（ESLint 强制）
-    types.ts      FormSchema / FieldNode / Patch / ValidationRule ...
-    id.ts         createId()
-    tree.ts       childrenOf / buildTree / descendantsOf / normalizeFieldOrder
-    patch.ts      applyPatch / invertPatch
-    validation.ts visibleFields / visibleTree / validateField / validateForm
-    schema.ts     createEmptySchema / normalizeSchema / parseSchemaJson / toJsonText
-    share.ts      encodeSchema / decodeSchema / buildShareUrl
-  fields/      11 个描述符 + 注册表（defaultProps / propSchema / component / isContainer / hasValue）
-  stores/      schema（唯一写入口 commit）/ history（补丁栈）/ runtime（值、错误、提交）/ persist
-  composables/ useDragField / useSortable / useKeyboard
-  components/  editor（画布、面板、属性、历史、导入导出）/ runtime（渲染、填表）/ shared（哑控件）
-  views/       EditorView / PreviewView / ShareView
-tests/         unit（core、store、拖拽数学）/ component（编辑器、面板、渲染、分组、导入导出）
-docs/decisions.md   27 条设计与取舍记录（含被测试推翻后改掉的方案）
+├── core/                    # 纯逻辑，禁止 import Vue / 组件 / store（ESLint 强制）
+│   ├── schema/              # 文档模型、收敛(normalize)、v1 迁移(migrate)、导入入口(parse)、字段目录(catalog)
+│   └── tree/                # 元素树操作：childrenOf / descendantsOf / isDescendantOf / normalizeNodeOrder / treeOf
+├── styles/                  # tokens.css（设计变量）+ base.css
+├── App.vue                  # M0 的导入壳（M1 替换成编辑器三栏）
+└── main.ts
+tests/
+├── unit/                    # 纯逻辑单测 + fixtures/（真实 WebBuilder 数据夹具）
+└── component/               # 组件测试（@vue/test-utils + jsdom）
+docs/
+├── 功能文档-v2-可视化页面搭建器.md
+├── decisions.md             # 架构决策记录（ADR）
+└── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（本机实测）
+## 质量数据（M0）
 
-| 项目 | 结果 |
+| 项目 | 数值 |
 | --- | --- |
-| 测试 | **22 个文件 / 273 个用例全绿** |
-| 覆盖率 | 语句 98.69% · 分支 93.75% · 函数 100% · 行 99.6%（`core/` 阈值 90%，CI 会拦） |
-| 类型检查 | `vue-tsc -b` 无错误（strict + `noUnusedLocals`） |
-| ESLint | 0 error 0 warning（含 core 分层规则） |
-| 构建产物 | 115 modules；JS 150.60 kB（**gzip 54.09 kB**）、CSS 13.14 kB（gzip 2.94 kB）、HTML 0.47 kB |
-| 200 字段挂载 | 编辑态 117–215ms、运行态 71–83ms（jsdom / Node 24，首次含模块预热） |
-| 100 次结构变更 | 合计 111ms（每次约 1.1ms） |
-| 拖拽热路径 | 命中测试 + order 换算每次 0.01ms（60fps 预算 16.7ms/帧） |
-| 100 步历史 | `undoStack` 序列化后 28.1KB（预算 5MB） |
-| 分享链接 | demo 表单 200 字符以内；120 字段高熵表单会超过 2000 上限并给出提示 |
+| 测试 | 4 个文件 / **78 个用例全绿** |
+| 覆盖率 | 语句 98.31% · 分支 92.09% · 函数 100% · 行 100%（阈值 90） |
+| 构建 | 21 modules；JS 81.36 kB（**gzip 31.58 kB**）；CSS 4.22 kB（gzip 1.22 kB） |
+| 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 
-> 性能数字来自 **jsdom + Node 24**，不是浏览器。真实拖拽手感没有自动化证据（见下）。
+## 架构决策
+
+见 [docs/decisions.md](docs/decisions.md)。M0 的关键决定：元素树而非扁平数组、`version:2` 显式版本、导入一律先收敛、
+v1 迁移只做保守映射（不猜用户意图）、`SceneNode` 命名避开 DOM 的 `Node`。
 
 ## 本机开发环境的三个坑（Windows + 受限沙箱）
 
-1. **npm 缓存越界**：默认缓存在用户目录，沙箱拒绝写入（`EPERM _cacache`）。
-   项目根的 `.npmrc` 把缓存重定向到仓库内 `.npm-cache/`（已 gitignore）。
-2. **Vite 加载配置失败**：Vite 启动时 `exec('net use')` 走管道 stdio，沙箱直接抛
-   `EPERM spawn EPERM`。项目提供垫片 `.sandbox/child-process-pipe-shim.cjs`，把这一条
-   调用短路成「没有映射网络驱动器」：
-   ```powershell
-   $env:NODE_OPTIONS = "--require $PWD/.sandbox/child-process-pipe-shim.cjs"
-   npm run test     # 或 dev / build / coverage
-   ```
-   `.sandbox/` 不进仓库（CI 在 Linux 上不会走这条分支）。
-3. **工作区权限**：项目目录曾缺 `WRITE_OWNER`，连列目录都会失败；已用 ACL 修复脚本处理
-   （带备份与回滚）。与代码无关，仅记录以免复现时误判成代码问题。
+1. **npm 缓存越界**：默认缓存在用户目录，沙箱拒绝写入。仓库根 `.npmrc` 已把缓存重定向到 `.npm-cache`。
+2. **Vite 的 `exec('net use')` 走管道会被沙箱拦成 `EPERM`**：跑 `dev / test / build / preview` 前先设垫片
+   `NODE_OPTIONS=--require <仓库>\.sandbox\child-process-pipe-shim.cjs`（`.sandbox/` 已在 `.gitignore` 里，Linux CI 不受影响）。
+3. **`npm ci` 会删 `node_modules`**：如果 dev/preview 服务还在跑，会报「文件已被占用」并留下半残的依赖树 —— 先停服务再装。
 
-## 部署
+## 已知缺口 / 未做
 
-构建产物是纯静态文件，任意静态托管都能放：
-
-```bash
-npm run build     # 产出 dist/
-npx serve dist    # 或 npm run preview
-```
-
-SPA 需要把未知路径回退到 `index.html`（`/preview`、`/share` 是前端路由）。
-
-**这条验收的边界（不假装完成）**：本机 `git push` 到 GitHub 会因 schannel
-`SEC_E_NO_CREDENTIALS` 失败，也没有任何托管平台的账号凭据，所以「线上链接」目前只给到
-**本地生产构建的冒烟证据**：
-
-```
-GET /                    → 200 (476 bytes)
-GET /preview             → 200
-GET /share               → 200
-GET /assets/index-*.js   → 200 (150602 bytes)
-GET /assets/index-*.css  → 200 (13143 bytes)
-```
-
-要真正上线：把仓库推到 GitHub，在 EdgeOne Pages / Vercel / Netlify 里设
-构建命令 `npm run build`、发布目录 `dist`；或者直接把 `dist/` 拷到任意静态空间。
-
-## 已知缺口（写在明面上）
-
-- **真实浏览器里的拖拽手感没有自动化测试**：本机没装 Chrome/Edge，opencli 的浏览器桥也没
-  连上，所以「按住鼠标拖着看」这一步是手动的。自动化覆盖的是纯函数数学 + jsdom 里的合成
-  指针事件链路，两者都测不到「跟手程度」和真实滚动条行为。
-- **线上链接需要你的托管账号**（见上）。
-- **分组只当容器用**：层级模型支持无限层嵌套（拖拽、渲染、校验都通），但属性面板没有做
-  针对嵌套分组的专门操作。
-- **没有后端**：值只存在内存与 localStorage，没有服务端存储、没有多人协作。
-
-设计与取舍的完整记录（含被测试推翻后改掉的方案、以及三个真 bug 的复盘）见
-[`docs/decisions.md`](docs/decisions.md)。
+- **M1–M8 尚未实现**：18 项能力的画布、布局引擎、断点、组件体系、代码生成、AI 助手都在 [PLAN.md](PLAN.md) 的计划里，当前只有 M0 的地基与导入壳。
+- **真实浏览器拖拽手感没有自动化证据**：本机无 Chrome/Edge，拖拽类逻辑靠纯函数单测 + jsdom 合成事件覆盖，需要人工在浏览器里确认。
+- **线上链接**：本机 `git push` 走 HTTPS 到 GitHub 会报 schannel `SEC_E_NO_CREDENTIALS`，且没有托管平台账号 —— 部署这一步需要你自己的账号。
+- **根目录多了一个删不掉的重复文件**：`2026-10-16-form-builder-blueprint.md`（34256 B）已复制进 `docs/archive/`，但沙箱拒绝删除根目录原件。
+- **M0 的 core 是先写实现后补测试**（与「core 先测试后实现」的约定有偏差），M1 起严格先红后绿。

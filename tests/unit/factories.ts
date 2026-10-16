@@ -1,58 +1,62 @@
-import { normalizeFieldOrder } from '@/core/tree'
-import type { FieldNode, FieldType, FormSchema } from '@/core/types'
+import type { NodeId, SceneNode } from '@/core/schema/types'
 
-let seq = 0
-
-/** 构造一个字段，未提供的字段用默认值补齐；id 可预期，便于断言失败时阅读 */
-export function makeField(input: Partial<FieldNode> & { type: FieldType }): FieldNode {
-  seq += 1
+/** 测试夹具：造一个合法节点，只写关心的字段 */
+export function makeNode(partial: Partial<SceneNode> & { id: NodeId }): SceneNode {
   return {
-    id: input.id ?? `f${seq}`,
-    parentId: input.parentId ?? null,
-    order: input.order ?? 0,
-    type: input.type,
-    name: input.name ?? `field_${seq}`,
-    label: input.label ?? `字段${seq}`,
-    props: input.props ?? {},
-    rules: input.rules ?? [],
-    visibleWhen: input.visibleWhen ?? null,
+    type: 'rect',
+    parentId: null,
+    order: 0,
+    layout: {
+      mode: 'free',
+      position: { x: 0, y: 0 },
+      size: { w: { kind: 'fixed', value: 160 }, h: { kind: 'fixed', value: 100 } },
+      padding: { top: 0, right: 0, bottom: 0, left: 0 },
+      gap: 0,
+      columns: 1,
+      align: 'start',
+      justify: 'start',
+      wrap: false,
+      constraints: { h: 'left', v: 'top' },
+    },
+    style: {
+      bg: '',
+      color: '',
+      fontSize: 0,
+      fontWeight: 0,
+      align: 'left',
+      radius: 0,
+      borderWidth: 0,
+      borderColor: '',
+      opacity: 1,
+      shadowBlur: 0,
+      shadowX: 0,
+      shadowY: 0,
+      shadowColor: '',
+      lineHeight: 0,
+      letterSpacing: 0,
+    },
+    props: {},
+    overrides: {},
+    meta: { hidden: false, locked: false },
+    ...partial,
   }
 }
 
-/**
- * fields 会先规范化（和 applyPatch 的产物一致）：数组摆放顺序不是语义，
- * 夹具规范化之后，`snap` 的逐字节比较才不会被摆放顺序干扰。
- */
-export function makeSchema(fields: FieldNode[] = []): FormSchema {
-  return {
-    version: 1,
-    id: 'schema_test',
-    name: '测试表单',
-    description: '',
-    fields: normalizeFieldOrder(fields),
-    settings: { labelPosition: 'top', submitText: '提交' },
-  }
+export function makeNodes(list: SceneNode[]): Record<NodeId, SceneNode> {
+  const nodes: Record<NodeId, SceneNode> = {}
+  for (const node of list) nodes[node.id] = node
+  return nodes
 }
 
-/** 同级字段按 order 升序的 id 列表 */
-export function siblingIdsOf(schema: FormSchema, parentId: string | null): string[] {
-  return schema.fields
-    .filter(f => f.parentId === parentId)
-    .sort((a, b) => a.order - b.order)
-    .map(f => f.id)
+/** 某一层级的 order 序列（断言「order 连续」用） */
+export function ordersOf(nodes: Record<NodeId, SceneNode>, parentId: NodeId | null): number[] {
+  return Object.values(nodes)
+    .filter((node) => node.parentId === parentId)
+    .map((node) => node.order)
+    .sort((a, b) => a - b)
 }
 
-/** 同级字段按 order 升序的 order 列表 */
-export function ordersOf(schema: FormSchema, parentId: string | null): number[] {
-  return schema.fields
-    .filter(f => f.parentId === parentId)
-    .sort((a, b) => a.order - b.order)
-    .map(f => f.order)
+/** 稳定快照：任何「同一逻辑状态」都该序列化成同一份 JSON */
+export function snapshot(value: unknown): string {
+  return JSON.stringify(value)
 }
-
-export function countIn(schema: FormSchema, parentId: string | null): number {
-  return schema.fields.filter(f => f.parentId === parentId).length
-}
-
-/** 序列化快照，用于「往返后完全一致」的断言 */
-export const snap = (schema: FormSchema): string => JSON.stringify(schema)

@@ -19,7 +19,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/core/**/*.ts'],
-      exclude: ['src/core/types.ts'],
+      // 纯类型文件没有可执行代码，不计入覆盖率
+      exclude: ['**/types.ts'],
       reporter: ['text', 'html'],
       thresholds: {
         lines: 90,

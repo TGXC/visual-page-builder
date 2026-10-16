@@ -1,7 +1,8 @@
 {
-  "name": "form-builder",
+  "name": "visual-page-builder",
   "private": true,
   "version": "0.0.0",
+  "description": "Studio：可视化页面搭建器（元素树 + 布局引擎 + 可控代码生成）",
   "type": "module",
   "scripts": {
     "dev": "vite",

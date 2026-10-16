@@ -1,0 +1,105 @@
+import type { NodeId, SceneNode, SceneNodeTree } from '../schema/types'
+
+/** 内部用于按父级分组的哨兵 key（不会与真实节点 id 冲突） */
+const ROOT_KEY = '\u0000root'
+
+function groupKey(parentId: NodeId | null): string {
+  return parentId === null ? ROOT_KEY : parentId
+}
+
+/** 同级子节点，按 order 升序（order 相同按 id 兜底，保证顺序稳定） */
+export function childrenOf(nodes: Record<NodeId, SceneNode>, parentId: NodeId | null): SceneNode[] {
+  return Object.values(nodes)
+    .filter((node) => node.parentId === parentId)
+    .sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id))
+}
+
+export function siblingIds(nodes: Record<NodeId, SceneNode>, parentId: NodeId | null): NodeId[] {
+  return childrenOf(nodes, parentId).map((node) => node.id)
+}
+
+/** 追加到同级末尾时应使用的 order */
+export function nextOrder(nodes: Record<NodeId, SceneNode>, parentId: NodeId | null): number {
+  const siblings = childrenOf(nodes, parentId)
+  return siblings.length === 0 ? 0 : Math.max(...siblings.map((node) => node.order)) + 1
+}
+
+/** 前序展开的子孙（不含自己）；带 seen 防环，脏数据也不会死循环 */
+export function descendantsOf(nodes: Record<NodeId, SceneNode>, id: NodeId): SceneNode[] {
+  const result: SceneNode[] = []
+  const seen = new Set<NodeId>([id])
+  const walk = (parentId: NodeId): void => {
+    for (const child of childrenOf(nodes, parentId)) {
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      result.push(child)
+      walk(child.id)
+    }
+  }
+  walk(id)
+  return result
+}
+
+/** 沿 parentId 上溯；祖先不存在（父链断了）返回 false */
+export function isDescendantOf(
+  nodes: Record<NodeId, SceneNode>,
+  ancestorId: NodeId,
+  id: NodeId,
+): boolean {
+  const seen = new Set<NodeId>()
+  let cursor: NodeId | null = nodes[id]?.parentId ?? null
+  while (cursor !== null) {
+    if (cursor === ancestorId) return true
+    if (seen.has(cursor)) return false
+    seen.add(cursor)
+    cursor = nodes[cursor]?.parentId ?? null
+  }
+  return false
+}
+
+/** 自己 + 全部子孙的 id */
+export function subtreeIds(nodes: Record<NodeId, SceneNode>, id: NodeId): NodeId[] {
+  return [id, ...descendantsOf(nodes, id).map((node) => node.id)]
+}
+
+/**
+ * 按 parentId 分组把 order 重排成连续的 0..n-1（稳定排序：先 order 后 id）。
+ * 同一逻辑状态必须序列化成同一份 JSON —— 这是补丁往返与撤销能逐字节比对的前提。
+ */
+export function normalizeNodeOrder(nodes: Record<NodeId, SceneNode>): Record<NodeId, SceneNode> {
+  const groups = new Map<string, SceneNode[]>()
+  for (const node of Object.values(nodes)) {
+    const key = groupKey(node.parentId)
+    const list = groups.get(key)
+    if (list) list.push(node)
+    else groups.set(key, [node])
+  }
+  const next: Record<NodeId, SceneNode> = { ...nodes }
+  for (const list of groups.values()) {
+    list.sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id))
+    list.forEach((node, index) => {
+      next[node.id] = node.order === index ? node : { ...node, order: index }
+    })
+  }
+  return next
+}
+
+/**
+ * 取 parentId === rootId 的子树森林（children 已按 order 升序）。
+ * rootId 传 null 时得到「整片森林」——v2 里就是页面唯一的根容器。
+ */
+export function treeOf(nodes: Record<NodeId, SceneNode>, rootId: NodeId | null = null): SceneNodeTree[] {
+  const build = (parentId: NodeId | null): SceneNodeTree[] =>
+    childrenOf(nodes, parentId).map((node) => ({ node, children: build(node.id) }))
+  return build(rootId)
+}
+
+/** 前序展开森林（与 descendantsOf 的区别：包含根节点本身） */
+export function flattenTree(forest: SceneNodeTree[]): SceneNode[] {
+  const result: SceneNode[] = []
+  for (const item of forest) {
+    result.push(item.node)
+    result.push(...flattenTree(item.children))
+  }
+  return result
+}

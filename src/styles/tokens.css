@@ -1,33 +1,24 @@
-/**
- * 设计变量：颜色、圆角、间距、字体。
- * 组件里只引用变量，不写死颜色，改主题只改这一个文件。
- */
 :root {
-  --fb-primary: #2563eb;
-  --fb-primary-weak: #dbeafe;
-  --fb-danger: #dc2626;
-  --fb-danger-weak: #fee2e2;
-
-  --fb-text: #1f2937;
-  --fb-text-weak: #6b7280;
-  --fb-border: #e5e7eb;
-  --fb-bg: #f3f4f6;
-  --fb-surface: #ffffff;
-
-  --fb-radius-lg: 12px;
-  --fb-radius: 8px;
-  --fb-radius-sm: 6px;
-
-  --fb-shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 8px 24px rgb(15 23 42 / 6%);
-  --fb-ring: 0 0 0 3px var(--fb-primary-weak);
-
-  --fb-space-xs: 4px;
-  --fb-space-sm: 8px;
-  --fb-space: 16px;
-  --fb-space-lg: 24px;
-  --fb-space-xl: 32px;
-
-  --fb-control-height: 36px;
-  --fb-font:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --studio-primary: #2563eb;
+  --studio-primary-weak: #dbeafe;
+  --studio-danger: #dc2626;
+  --studio-danger-weak: #fee2e2;
+  --studio-success: #059669;
+  --studio-text: #1f2937;
+  --studio-text-weak: #6b7280;
+  --studio-border: #e5e7eb;
+  --studio-bg: #f3f4f6;
+  --studio-surface: #ffffff;
+  --studio-radius-lg: 12px;
+  --studio-radius: 8px;
+  --studio-radius-sm: 6px;
+  --studio-shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 8px 24px rgb(15 23 42 / 6%);
+  --studio-ring: 0 0 0 3px rgb(37 99 235 / 18%);
+  --studio-space-xs: 4px;
+  --studio-space-sm: 8px;
+  --studio-space: 16px;
+  --studio-space-lg: 24px;
+  --studio-control-height: 32px;
+  --studio-font: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --studio-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
 }
