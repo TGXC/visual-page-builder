@@ -1,4 +1,5 @@
-import type { NodeId, SceneNode } from '@/core/schema/types'
+import type { Doc, NodeId, Page, PageId, SceneNode } from '@/core/schema/types'
+import { DEFAULT_BREAKPOINTS, DEFAULT_THEME_TOKENS } from '@/core/schema/catalog'
 
 /** 测试夹具：造一个合法节点，只写关心的字段 */
 export function makeNode(partial: Partial<SceneNode> & { id: NodeId }): SceneNode {
@@ -60,3 +61,37 @@ export function ordersOf(nodes: Record<NodeId, SceneNode>, parentId: NodeId | nu
 export function snapshot(value: unknown): string {
   return JSON.stringify(value)
 }
+
+/** 造一个页面：默认一个空的根 frame */
+export function makePage(partial: Partial<Page> & { id: PageId }): Page {
+  const root = partial.root ?? 'root'
+  return {
+    name: '首页',
+    path: '/',
+    viewport: { w: 1440, h: 900 },
+    ...partial,
+    root,
+    nodes: partial.nodes ?? makeNodes([makeNode({ id: root, type: 'frame' })]),
+  }
+}
+
+/** 造一个最小合法文档 */
+export function makeDoc(partial: Partial<Doc> = {}): Doc {
+  const pages = partial.pages ?? [makePage({ id: 'page_1' })]
+  return {
+    version: 2,
+    id: 'doc_1',
+    name: '测试项目',
+    breakpoints: DEFAULT_BREAKPOINTS.map((bp) => ({ ...bp })),
+    theme: { tokens: { ...DEFAULT_THEME_TOKENS } },
+    ...partial,
+    pages,
+    activePageId: partial.activePageId ?? pages[0].id,
+  }
+}
+
+/** 单页文档，直接给一串节点（root 默认 'root'） */
+export function docWithNodes(nodes: SceneNode[], rootId = 'root'): Doc {
+  return makeDoc({ pages: [makePage({ id: 'page_1', root: rootId, nodes: makeNodes(nodes) })] })
+}
+

@@ -56,10 +56,14 @@ function uniqueId(candidate: string, used: Set<string>): string {
  * 判断一份 JSON 是不是 WebBuilder v1 的项目：
  * ①导出文件形状 `{app:'visual-builder', version:1, pages:[...]}`
  * ②localStorage 存档形状 `{pages:[...], activePageId}`
+ *
+ * 带 `app` 标记的文件即使 pages 坏了也认成 v1，这样导入时报的是
+ * 「不是有效的 WebBuilder 项目」而不是含糊的「不是有效的项目数据」。
  */
 export function isLegacyProject(raw: unknown): boolean {
-  if (!isRecord(raw) || !Array.isArray(raw.pages) || raw.pages.length === 0) return false
+  if (!isRecord(raw)) return false
   if (raw.app === LEGACY_APP_ID) return true
+  if (!Array.isArray(raw.pages) || raw.pages.length === 0) return false
   return raw.pages.some((page) => isRecord(page) && Array.isArray(page.elements))
 }
 

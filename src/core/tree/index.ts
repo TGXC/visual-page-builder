@@ -85,6 +85,33 @@ export function normalizeNodeOrder(nodes: Record<NodeId, SceneNode>): Record<Nod
 }
 
 /**
+ * 把 nodes 的**键顺序**规范成树前序（根 → 按 order 的子孙递归 → 剩下的孤儿按 order/id 兜底）。
+ *
+ * 为什么需要它：补丁往返（应用后按逆序求逆）要求「同一逻辑状态序列化成同一份 JSON」。
+ * 对象键顺序由写入顺序决定，而 insert 只会把新键追加到末尾，于是删掉中间节点再撤销后，
+ * 键顺序就和最初不同了 —— JSON.stringify 直接比对不上。把键顺序固定成树前序即可根除。
+ * 节点对象本身不复制（引用保留），只重建这个 map。
+ */
+export function canonicalNodes(nodes: Record<NodeId, SceneNode>): Record<NodeId, SceneNode> {
+  const ordered: Record<NodeId, SceneNode> = {}
+  const seen = new Set<NodeId>()
+  const visit = (node: SceneNode): void => {
+    if (seen.has(node.id)) return
+    seen.add(node.id)
+    ordered[node.id] = node
+    for (const child of childrenOf(nodes, node.id)) visit(child)
+  }
+
+  for (const root of childrenOf(nodes, null)) visit(root)
+  // 孤儿（父级不存在或成环而不可达）按 order/id 排到末尾，保证任何输入都能得到同一份 JSON
+  const rest = Object.values(nodes)
+    .filter((node) => !seen.has(node.id))
+    .sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id))
+  for (const node of rest) visit(node)
+  return ordered
+}
+
+/**
  * 取 parentId === rootId 的子树森林（children 已按 order 升序）。
  * rootId 传 null 时得到「整片森林」——v2 里就是页面唯一的根容器。
  */

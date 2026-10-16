@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid'
-import { normalizeNodeOrder } from '../tree'
+import { canonicalNodes, normalizeNodeOrder } from '../tree'
 import {
   COMPONENT_TYPE_SET,
   CONTENT_KEYS,
@@ -38,6 +38,9 @@ import type {
 export const MAX_COORD = 100_000
 /** 文本类属性上限（v1 是 4MB，这里收到 20000 防止脏 JSON 拖垮编辑器） */
 export const MAX_TEXT = 20_000
+/** 视口宽高的允许区间：收敛层与编辑器自定义视口共用同一对边界 */
+export const MIN_VIEWPORT = 200
+export const MAX_VIEWPORT = 10_000
 const MAX_NAME = 80
 
 export function createId(prefix: string): string {
@@ -275,7 +278,7 @@ export function normalizeNodes(raw: unknown, rootId: NodeId): Record<NodeId, Sce
   for (const node of Object.values(nodes)) {
     if (node.id !== rootId && node.parentId === null) node.parentId = rootId
   }
-  return normalizeNodeOrder(nodes)
+  return canonicalNodes(normalizeNodeOrder(nodes))
 }
 
 export function createRootFrame(id: NodeId, viewport = DEFAULT_VIEWPORT): SceneNode {
@@ -300,8 +303,8 @@ export function normalizePage(raw: unknown, fallbackId: string): Page {
   const root = stringOr(source.root, createId('root'))
   const viewportSource = isRecord(source.viewport) ? source.viewport : {}
   const viewport = {
-    w: clampInt(viewportSource.w, DEFAULT_VIEWPORT.w, 200, 10_000),
-    h: clampInt(viewportSource.h, DEFAULT_VIEWPORT.h, 200, 10_000),
+    w: clampInt(viewportSource.w, DEFAULT_VIEWPORT.w, MIN_VIEWPORT, MAX_VIEWPORT),
+    h: clampInt(viewportSource.h, DEFAULT_VIEWPORT.h, MIN_VIEWPORT, MAX_VIEWPORT),
   }
   const nodes = normalizeNodes(source.nodes, root)
   if (!nodes[root]) nodes[root] = createRootFrame(root, viewport)
