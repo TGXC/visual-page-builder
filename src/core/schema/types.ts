@@ -13,25 +13,60 @@
 export type NodeId = string
 export type PageId = string
 export type BreakpointId = string
+export type SymbolId = string
 
-export type ComponentType =
+/**
+ * 内置组件类型（40 个：布局 7 / 基础 8 / 表单 12 / 媒体 5 / 展示 8）。
+ * 清单本身由 `core/components` 的描述符注册表提供，这里只是给类型收窄用。
+ */
+export type BuiltinComponentType =
   | 'frame'
   | 'group'
+  | 'section'
+  | 'container'
+  | 'columns'
+  | 'divider'
+  | 'spacer'
   | 'text'
+  | 'heading'
+  | 'label'
   | 'button'
-  | 'input'
+  | 'link'
   | 'rect'
   | 'circle'
-  | 'divider'
-  | 'nav'
-  | 'header'
-  | 'card'
-  | 'image'
+  | 'badge'
+  | 'form'
+  | 'input'
+  | 'textarea'
   | 'select'
   | 'checkbox'
   | 'radio'
-  | 'textarea'
+  | 'switch'
+  | 'slider'
+  | 'date'
+  | 'number'
+  | 'file'
+  | 'rating'
+  | 'image'
   | 'video'
+  | 'audio'
+  | 'icon'
+  | 'avatar'
+  | 'nav'
+  | 'header'
+  | 'card'
+  | 'list'
+  | 'table'
+  | 'tabs'
+  | 'alert'
+  | 'progress'
+
+/**
+ * 节点类型。除了内置类型，还允许第三方通过 `registerComponent()` 注册的自定义类型
+ * （`string & {}` 让自动补全仍然生效，同时不把联合类型写死）。
+ */
+export type ComponentType = BuiltinComponentType | (string & {})
+
 
 /** 尺寸模式：固定像素 / 包裹内容 / 填满父容器 / 比例 */
 export type SizeKind = 'fixed' | 'hug' | 'fill' | 'ratio'
@@ -145,6 +180,17 @@ export interface Theme {
   tokens: Record<string, string>
 }
 
+/** 组件（master）：自持一棵节点子树，页面里的 instance 节点展开引用它 */
+export interface SymbolDef {
+  id: SymbolId
+  name: string
+  /** master 子树的根节点 id（存在于 nodes 里，且 parentId 指向原页面，展开时会被重挂到实例下） */
+  root: NodeId
+  nodes: Record<NodeId, SceneNode>
+  /** 实例可以通过 props 覆盖的键白名单 */
+  overridable: readonly string[]
+}
+
 export interface Doc {
   version: 2
   id: string
@@ -153,6 +199,8 @@ export interface Doc {
   activePageId: PageId
   breakpoints: Breakpoint[]
   theme: Theme
+  /** 组件（master）表；缺省视为空 */
+  symbols?: Record<SymbolId, SymbolDef>
 }
 
 export interface Box {

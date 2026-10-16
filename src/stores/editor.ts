@@ -18,10 +18,12 @@ import type {
   Patch,
   SceneNode,
   StyleSpec,
+  SymbolDef,
+  SymbolId,
 } from '@/core/schema/types'
 import { createDoc, MAX_VIEWPORT, MIN_VIEWPORT } from '@/core/schema/normalize'
 import { parseImportedDoc } from '@/core/schema/parse'
-import { applyPatches, invertPatches } from '@/core/patch'
+import { applyPatches, cloneNode, invertPatches } from '@/core/patch'
 import {
   canRedo,
   canUndo,
@@ -46,10 +48,18 @@ import {
   type LayerDirection,
 } from '@/core/ops'
 import { AUTOSAVE_DELAY, loadDoc, saveDoc } from '@/core/persistence'
-import { childrenOf, nextOrder } from '@/core/tree'
+import { childrenOf, isDescendantOf, nextOrder } from '@/core/tree'
 import { generateHtml, generateResponsiveCss } from '@/core/codegen'
 import { computeLayout } from '@/core/layout'
 import { reparentPatches } from '@/core/dnd'
+import {
+  INSTANCE_TYPE,
+  captureSymbol,
+  expandInstances,
+  instanceIdOf,
+  instancesOf,
+  isSyntheticId,
+} from '@/core/symbols'
 import {
   baseBreakpointId,
   breakpointViewport,
@@ -128,6 +138,13 @@ export const useEditorStore = defineStore('editor', () => {
    * 画布渲染、选择态属性面板、布局引擎都用它，否则「改了手机断点却看不见」。
    */
   const resolvedNodes = computed(() => effectiveNodes(nodes.value, doc.value.breakpoints, breakpointId.value))
+  /**
+   * 渲染/布局用的节点表：断点有效值之后再展开组件实例（`instance` → master 子树克隆）。
+   * 合成 id 形如 `${实例id}~${masterId}`，只存在于这一层；文档里存的仍是实例节点本身。
+   */
+  const viewNodes = computed(() =>
+    expandInstances({ ...activePage.value, nodes: resolvedNodes.value }, doc.value),
+  )
   /** 编辑的几何基准：基准断点用原始节点，窄断点用有效节点（从屏幕上看到的位置接着拖） */
   const editNodes = computed(() => (isBaseBreakpoint.value ? nodes.value : resolvedNodes.value))
 
@@ -156,7 +173,7 @@ export const useEditorStore = defineStore('editor', () => {
   const position = computed(() => historyPosition(history.value))
   const layout = computed(() =>
     computeLayout({
-      nodes: resolvedNodes.value,
+      nodes: viewNodes.value,
       rootId: rootId.value,
       viewport: activePage.value.viewport,
       measure: measureText,
@@ -171,8 +188,10 @@ export const useEditorStore = defineStore('editor', () => {
   const exportPage = computed<Page>(() => {
     const base = baseBreakpoint.value
     if (!base) return activePage.value
+    const resolved = effectivePage(activePage.value, doc.value.breakpoints, base.id)
     return {
-      ...effectivePage(activePage.value, doc.value.breakpoints, base.id),
+      ...resolved,
+      nodes: expandInstances(resolved, doc.value),
       viewport: breakpointViewport(base),
     }
   })
@@ -207,28 +226,37 @@ export const useEditorStore = defineStore('editor', () => {
   }
 
   function pruneSelection(): void {
-    const alive = selectedIds.value.filter((id) => nodes.value[id])
-    if (alive.length !== selectedIds.value.length) selectedIds.value = alive
+    const alive = [...new Set(selectedIds.value.map(realId))].filter((id) => nodes.value[id])
+    if (alive.length !== selectedIds.value.length || alive.some((id, index) => id !== selectedIds.value[index])) {
+      selectedIds.value = alive
+    }
   }
 
   // ── 选择 ──────────────────────────────────────────────────────────────
+  /** 选择只能落在文档里真实存在的节点上：点中实例展开出来的子节点时归到实例本身 */
+  function realId(id: NodeId): NodeId {
+    return isSyntheticId(id) && !nodes.value[id] ? instanceIdOf(id) : id
+  }
+
   function select(id: NodeId | null, additive = false): void {
     if (id === null) {
       selectedIds.value = []
       return
     }
-    if (!nodes.value[id]) return
+    const target = realId(id)
+    if (!nodes.value[target]) return
     if (!additive) {
-      selectedIds.value = [id]
+      selectedIds.value = [target]
       return
     }
-    selectedIds.value = selectedIds.value.includes(id)
-      ? selectedIds.value.filter((item) => item !== id)
-      : [...selectedIds.value, id]
+    selectedIds.value = selectedIds.value.includes(target)
+      ? selectedIds.value.filter((item) => item !== target)
+      : [...selectedIds.value, target]
   }
 
   function selectMany(ids: NodeId[]): void {
-    selectedIds.value = ids.filter((id) => Boolean(nodes.value[id]))
+    const real = ids.map(realId).filter((id) => Boolean(nodes.value[id]))
+    selectedIds.value = [...new Set(real)]
   }
 
   function clearSelection(): void {
@@ -246,6 +274,87 @@ export const useEditorStore = defineStore('editor', () => {
     commit(`添加${type}`, [insertPatch(activePage.value.id, node)])
     selectedIds.value = [node.id]
     return node.id
+  }
+
+  // ── 组件（master / instance，M4） ─────────────────────────────────────
+  /** 文档里的组件定义 */
+  const symbols = computed<SymbolDef[]>(() => Object.values(doc.value.symbols ?? {}))
+
+  function componentInstances(symbolId: SymbolId): { pageId: string; nodeId: NodeId }[] {
+    return instancesOf(doc.value, symbolId)
+  }
+
+  /**
+   * 把选区里最外层的节点抓成一个组件，原位置替换成它的一个实例。
+   * 组件定义不是「页面/组件容器内的节点级」补丁能表达的，所以这一步直接改写历史基准、
+   * 不进撤销栈（撤销栈仍是页面节点级补丁，见 `docs/decisions.md` D31）。
+   */
+  function createComponent(name = '组件'): SymbolId | null {
+    const real = selectedIds.value.filter((id) => Boolean(nodes.value[id]))
+    if (real.length === 0) return null
+    const outermost = real.filter(
+      (id) => !real.some((other) => other !== id && isDescendantOf(nodes.value, other, id)),
+    )
+    const rootSourceId = outermost[0]
+    const source = nodes.value[rootSourceId]
+    const def = captureSymbol(nodes.value, rootSourceId, name)
+    const instance = createNode(INSTANCE_TYPE, {
+      parentId: source.parentId,
+      order: source.order,
+      position: { ...source.layout.position },
+    })
+    instance.layout = cloneNode(source).layout
+    instance.style = { ...source.style }
+    instance.props = { symbolId: def.id }
+    const patches = [
+      ...removePatches(activePage.value, [rootSourceId]),
+      insertPatch(activePage.value.id, instance),
+    ]
+    const applied = applyPatches(doc.value, patches)
+    const next: Doc = { ...applied, symbols: { ...(applied.symbols ?? {}), [def.id]: def } }
+    history.value = { ...history.value, base: next }
+    selectedIds.value = [instance.id]
+    return def.id
+  }
+
+  /** 插入一个组件实例（节点级补丁，可撤销） */
+  function insertInstance(symbolId: SymbolId): NodeId | null {
+    const def = doc.value.symbols?.[symbolId]
+    if (!def) return null
+    const parentId = rootId.value
+    const node = createNode(INSTANCE_TYPE, {
+      parentId,
+      order: nextOrder(nodes.value, parentId),
+      position: { x: 40 + (topLevel.value.length % 6) * 24, y: 40 + (topLevel.value.length % 6) * 24 },
+    })
+    // 实例只带 symbolId：描述符里的默认 props.text 是空串，留着会当成「覆盖成空文案」抹掉 master 内容
+    node.props = { symbolId }
+    const master = def.nodes[def.root]
+    if (master) {
+      node.layout.size = { w: { ...master.layout.size.w }, h: { ...master.layout.size.h } }
+      node.layout.mode = master.layout.mode
+    }
+    commit('添加组件实例', [insertPatch(activePage.value.id, node)])
+    selectedIds.value = [node.id]
+    return node.id
+  }
+
+  /**
+   * 改组件（master）：补丁的 `pageId` 放组件 id，走同一套补丁 / 撤销管线，
+   * 因此「改 master 后所有实例同步」与撤销都成立。
+   */
+  function updateSymbolNode(symbolId: SymbolId, nodeId: NodeId, edit: NodeEdit, label = '修改组件'): void {
+    const node = doc.value.symbols?.[symbolId]?.nodes[nodeId]
+    if (!node) return
+    const after = mergeEdit(node, edit)
+    const before: NodePatchData = {}
+    if (after.type !== undefined) before.type = node.type
+    if (after.layout !== undefined) before.layout = node.layout
+    if (after.style !== undefined) before.style = node.style
+    if (after.props !== undefined) before.props = node.props
+    if (after.overrides !== undefined) before.overrides = node.overrides
+    if (after.meta !== undefined) before.meta = node.meta
+    commit(label, [updatePatch(symbolId, nodeId, before, after)], `symbol:${symbolId}:${nodeId}`)
   }
 
   function removeSelection(): void {
@@ -673,6 +782,8 @@ export const useEditorStore = defineStore('editor', () => {
     activePage,
     nodes,
     resolvedNodes,
+    viewNodes,
+    symbols,
     rootId,
     topLevel,
     selectedIds,
@@ -726,6 +837,10 @@ export const useEditorStore = defineStore('editor', () => {
     renamePage,
     removePage,
     switchPage,
+    createComponent,
+    insertInstance,
+    updateSymbolNode,
+    componentInstances,
     loadTemplate,
     newProject,
     importText,

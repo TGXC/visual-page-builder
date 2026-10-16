@@ -1,88 +1,82 @@
 <script setup lang="ts">
-/** 组件面板：15 类组件（拖入画布）+ 6 套模板（一键载入） */
+/**
+ * 组件面板：组件清单来自 `core/components` 的描述符注册表（含第三方注册的组件），
+ * 按分类分组并支持搜索；下面接 6 套模板（一键载入）。
+ */
+import { computed, onUnmounted, ref } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { TEMPLATES } from '@/core/templates'
+import {
+  componentsByCategory,
+  listComponents,
+  searchComponents,
+  subscribeRegistry,
+} from '@/core/components'
+import type { ComponentDescriptor } from '@/core/components'
+import type { ComponentType } from '@/core/schema/types'
 
 const store = useEditorStore()
+const keyword = ref('')
+/** 注册表版本：第三方注册组件后立刻反映到面板 */
+const revision = ref(0)
+const unsubscribe = subscribeRegistry(() => {
+  revision.value += 1
+})
+onUnmounted(unsubscribe)
+const total = computed(() => {
+  void revision.value
+  return listComponents().length
+})
 
-const ICONS: Record<string, string> = {
-  text: 'T',
-  button: '▭',
-  input: '⌷',
-  rect: '▢',
-  circle: '◯',
-  divider: '—',
-  nav: '☰',
-  header: '▤',
-  card: '❏',
-  image: '🖼',
-  select: '▾',
-  checkbox: '☑',
-  radio: '◉',
-  textarea: '¶',
-  video: '▶',
-  group: '▣',
-  frame: '⬚',
-}
-
-const LABELS: Record<string, string> = {
-  text: '文本',
-  button: '按钮',
-  input: '输入框',
-  rect: '矩形',
-  circle: '圆形',
-  divider: '分割线',
-  nav: '导航栏',
-  header: '页头',
-  card: '卡片',
-  image: '图片',
-  select: '下拉',
-  checkbox: '复选',
-  radio: '单选',
-  textarea: '文本域',
-  video: '视频',
-  group: '分组',
-  frame: '容器',
-}
-
-const GROUPS: { label: string; types: string[] }[] = [
-  { label: '基础', types: ['text', 'button', 'input', 'rect', 'circle', 'divider'] },
-  { label: '布局', types: ['frame', 'group', 'nav', 'header', 'card'] },
-  { label: '表单', types: ['select', 'checkbox', 'radio', 'textarea'] },
-  { label: '媒体', types: ['image', 'video'] },
-]
+const groups = computed<{ key: string; label: string; items: ComponentDescriptor[] }[]>(() => {
+  void revision.value
+  const query = keyword.value.trim()
+  if (query !== '') {
+    return [{ key: 'search', label: `搜索「${query}」`, items: searchComponents(query) }]
+  }
+  return componentsByCategory().map((group) => ({ key: group.category, label: group.label, items: group.items }))
+})
 
 function onDragStart(event: DragEvent, type: string): void {
   event.dataTransfer?.setData('text/plain', type)
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
 }
 
-function add(type: string): void {
-  store.insertComponent(type as never)
+function add(type: ComponentType): void {
+  store.insertComponent(type)
 }
 </script>
 
 <template>
   <section class="panel panel--palette">
-    <h2 class="panel__title">组件</h2>
-    <div v-for="group in GROUPS" :key="group.label" class="palette-group">
+    <h2 class="panel__title">组件 <span class="panel__count">{{ total }}</span></h2>
+    <input
+      v-model="keyword"
+      class="editor-input palette-search"
+      type="search"
+      placeholder="搜索组件…"
+      data-role="palette-search"
+    />
+
+    <div v-for="group in groups" :key="group.key" class="palette-group" :data-category="group.key">
       <p class="palette-group__label">{{ group.label }}</p>
       <div class="palette-grid">
         <button
-          v-for="type in group.types"
-          :key="type"
+          v-for="item in group.items"
+          :key="item.type"
           type="button"
           class="palette-item"
-          :data-type="type"
+          :data-type="item.type"
           draggable="true"
-          :title="`拖入画布或点击添加：${LABELS[type]}`"
-          @dragstart="onDragStart($event, type)"
-          @click="add(type)"
+          :title="`拖入画布或点击添加：${item.label}`"
+          @dragstart="onDragStart($event, item.type)"
+          @click="add(item.type)"
         >
-          <span class="palette-item__icon">{{ ICONS[type] ?? '•' }}</span>
-          <span class="palette-item__label">{{ LABELS[type] ?? type }}</span>
+          <span class="palette-item__icon">{{ item.icon }}</span>
+          <span class="palette-item__label">{{ item.label }}</span>
         </button>
       </div>
+      <p v-if="group.items.length === 0" class="palette-empty">没有匹配的组件</p>
     </div>
 
     <h2 class="panel__title panel__title--spaced">模板</h2>

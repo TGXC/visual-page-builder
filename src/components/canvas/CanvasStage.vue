@@ -10,6 +10,7 @@ import type { Box, NodeId, SceneNode } from '@/core/schema/types'
 import type { Handle, SnapGuide } from '@/core/geometry'
 import { applySnap, rectOf, rectsIntersect, resizeBox } from '@/core/geometry'
 import { dropParentAt } from '@/core/dnd'
+import { instanceIdOf } from '@/core/symbols'
 import type { SpacingHint } from '@/core/spacing'
 import { spacingHints } from '@/core/spacing'
 import { isDescendantOf } from '@/core/tree'
@@ -50,7 +51,7 @@ let interaction: Interaction | null = null
 
 const root = computed<SceneNode>(() => view.value[store.rootId])
 /** 画布一律渲染「当前断点的有效节点」：断点上的覆盖（隐藏/样式/几何）必须看得见 */
-const view = computed<Record<NodeId, SceneNode>>(() => store.resolvedNodes)
+const view = computed<Record<NodeId, SceneNode>>(() => store.viewNodes as Record<NodeId, SceneNode>)
 const vw = computed(() => store.viewport().w)
 const vh = computed(() => store.viewport().h)
 
@@ -80,6 +81,18 @@ function topLevelSelection(): NodeId[] {
   return store.selectedIds.filter(
     (id) => !store.selectedIds.some((other) => other !== id && isDescendantOf(store.nodes, other, id)),
   )
+}
+
+/**
+ * 节点 id → 文档里真实存在的节点：实例展开出来的合成节点归到它的实例身上
+ * （选中/拖动/缩放都作用在实例，而不是只存在于渲染层的克隆）。
+ */
+function docNodeOf(id: NodeId): { id: NodeId; node: SceneNode } | null {
+  const direct = store.nodes[id]
+  if (direct) return { id, node: direct }
+  const owner = instanceIdOf(id)
+  const ownerNode = store.nodes[owner]
+  return ownerNode ? { id: owner, node: ownerNode } : null
 }
 
 /** 指针落在哪个容器里（取最深的那层，排除被拖动的节点及其子孙），拖入分组/换父级都用它 */
@@ -166,9 +179,11 @@ function onStagePointerDown(event: PointerEvent): void {
 
   if (handleEl && nodeEl) {
     const id = nodeEl.dataset.nodeId as NodeId
-    const node = store.nodes[id]
-    if (!node || node.meta.locked) return
-    store.select(id)
+    const resolved = docNodeOf(id)
+    if (!resolved || resolved.node.meta.locked) return
+    const targetId = resolved.id
+    const node = resolved.node
+    store.select(targetId)
     interaction = {
       mode: 'resize',
       pointerId: event.pointerId,
@@ -177,8 +192,8 @@ function onStagePointerDown(event: PointerEvent): void {
       startLocalX: localPoint(event.clientX, event.clientY).x,
       startLocalY: localPoint(event.clientX, event.clientY).y,
       handle: handleEl.getAttribute('data-handle') as Handle,
-      ids: [id],
-      boxes: new Map([[id, rectOf(node)]]),
+      ids: [targetId],
+      boxes: new Map([[targetId, rectOf(node)]]),
       startBox: rectOf(node),
       active: true,
     }
@@ -188,11 +203,13 @@ function onStagePointerDown(event: PointerEvent): void {
 
   if (nodeEl) {
     const id = nodeEl.dataset.nodeId as NodeId
-    const node = store.nodes[id]
-    if (!node) return
+    const resolved = docNodeOf(id)
+    if (!resolved) return
+    const targetId = resolved.id
+    const node = resolved.node
     const additive = event.shiftKey || event.metaKey || event.ctrlKey
-    if (!store.selectedIds.includes(id)) store.select(id, additive)
-    else if (additive) store.select(id, true)
+    if (!store.selectedIds.includes(targetId)) store.select(targetId, additive)
+    else if (additive) store.select(targetId, true)
     if (node.meta.locked) return
     beginMove(event, node)
     attach()

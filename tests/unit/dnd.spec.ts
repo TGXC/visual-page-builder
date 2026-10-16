@@ -57,6 +57,35 @@ describe('M2 拖拽换父级：落点判定', () => {
     expect(dropParentAt({ nodes, boxes, rootId, point: { x: 160, y: 160 } })).toBe('section')
   })
 
+  it('M4 注册表里的容器类型（section / container / columns）都能当落点，实例不能', () => {
+    const nodes = makeNodes([
+      makeNode({
+        id: 'root',
+        type: 'frame',
+        layout: {
+          ...makeNode({ id: 'x' }).layout,
+          size: { w: { kind: 'fixed', value: 1440 }, h: { kind: 'fixed', value: 900 } },
+        },
+      }),
+      makeNode({ id: 'sec', type: 'section', parentId: 'root', order: 0 }),
+      makeNode({ id: 'box', type: 'container', parentId: 'root', order: 1 }),
+      makeNode({ id: 'cols', type: 'columns', parentId: 'root', order: 2 }),
+      makeNode({ id: 'inst', type: 'instance', parentId: 'root', order: 3 }),
+    ])
+    const boxes: Record<NodeId, Box> = {
+      root: { x: 0, y: 0, w: 1440, h: 900 },
+      sec: { x: 10, y: 10, w: 200, h: 100 },
+      box: { x: 300, y: 10, w: 200, h: 100 },
+      cols: { x: 600, y: 10, w: 200, h: 100 },
+      inst: { x: 900, y: 10, w: 200, h: 100 },
+    }
+    expect(dropParentAt({ nodes, boxes, rootId: 'root', point: { x: 20, y: 20 } })).toBe('sec')
+    expect(dropParentAt({ nodes, boxes, rootId: 'root', point: { x: 310, y: 20 } })).toBe('box')
+    expect(dropParentAt({ nodes, boxes, rootId: 'root', point: { x: 610, y: 20 } })).toBe('cols')
+    // 实例的内容由 master 决定，不能往里拖
+    expect(dropParentAt({ nodes, boxes, rootId: 'root', point: { x: 910, y: 20 } })).toBe('root')
+  })
+
   it('localPosition 把屏幕盒换算成当前父容器内容框坐标（含 padding）', () => {
     const { nodes, boxes } = scene()
     const page = makePage({ id: 'page_1', root: 'root', nodes })

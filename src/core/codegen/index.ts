@@ -7,6 +7,8 @@
  */
 import type { Box, Breakpoint, Doc, NodeId, Page, SceneNode } from '../schema/types'
 import { computeLayout } from '../layout'
+import { renderContent } from '../components'
+import { escapeHtml, safeUrl } from '../html'
 import {
   breakpointViewport,
   effectivePage,
@@ -15,34 +17,7 @@ import {
 } from '../responsive'
 import { childrenOf } from '../tree'
 
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-/**
- * 只放行 http/https、相对路径、页内锚点与**光栅图 dataURL**。
- * 导出文件会被用户直接打开，`javascript:` 与 `data:text/html` 必须拦掉；
- * 光栅图 dataURL 是本地文件通道（B16）的产物，图片上下文里不能执行脚本，故放行。
- */
-export function safeUrl(url: string): string {
-  const value = url.trim()
-  if (value === '') return ''
-  const lowered = value.toLowerCase()
-  if (lowered.startsWith('javascript:') || lowered.startsWith('vbscript:')) return ''
-  if (lowered.startsWith('data:')) {
-    // 只认 data:image/<光栅格式>;base64,，SVG 能内嵌脚本，不放行。
-    return /^data:image\/(png|jpe?g|gif|webp|bmp|avif);base64,[a-z0-9+/=\s]+$/i.test(value) ? value : ''
-  }
-  if (/^(https?:)?\/\//.test(lowered) || lowered.startsWith('/') || lowered.startsWith('#') || lowered.startsWith('./')) {
-    return value
-  }
-  // 形如 `a.png` 的相对路径也放行，但绝不放行任何带协议的其它写法
-  return /^[a-z][a-z0-9+.-]*:/i.test(lowered) ? '' : value
-}
+export { escapeHtml, safeUrl }
 
 function px(value: number): string {
   return `${Math.round(value * 100) / 100}px`
@@ -190,51 +165,6 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)
 }
 
-function optionsOf(raw: unknown): string[] {
-  return text(raw)
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => item !== '')
-}
-
-function contentHtml(node: SceneNode): string {
-  const props = node.props
-  const label = text(props.text)
-  switch (node.type) {
-    case 'header':
-    case 'card':
-      return [label, props.sub ? `<div class="sub">${escapeHtml(text(props.sub))}</div>` : ''].join('')
-    case 'button':
-      return escapeHtml(label)
-    case 'input':
-      return `<input type="text" placeholder="${escapeHtml(text(props.placeholder))}">`
-    case 'textarea':
-      return `<textarea placeholder="${escapeHtml(text(props.placeholder))}"></textarea>`
-    case 'select': {
-      const options = optionsOf(props.text)
-      const head = props.placeholder ? `<option value="">${escapeHtml(text(props.placeholder))}</option>` : ''
-      return `<select>${head}${options.map((item) => `<option>${escapeHtml(item)}</option>`).join('')}</select>`
-    }
-    case 'checkbox':
-    case 'radio':
-      return optionsOf(props.text)
-        .map((item) => `<label><input type="${node.type}">${escapeHtml(item)}</label>`)
-        .join('')
-    case 'video': {
-      const src = safeUrl(text(props.src))
-      return src ? `<video src="${escapeHtml(src)}" controls></video>` : escapeHtml(label)
-    }
-    case 'image': {
-      const src = safeUrl(text(props.src))
-      return src ? '' : escapeHtml(label)
-    }
-    case 'divider':
-      return ''
-    default:
-      return escapeHtml(label)
-  }
-}
-
 function backgroundImageOf(node: SceneNode): string {
   if (node.type !== 'image') return ''
   return safeUrl(text(node.props.src))
@@ -252,9 +182,10 @@ function renderNode(
 ): string {
   const children = childrenOf(nodes, node.id)
   const image = backgroundImageOf(node)
-  const body = contentHtml(node) + children.map((child) => renderNode(child, nodes, indent, boxes)).join('')
+  const body = renderContent(node, nodes) + children.map((child) => renderNode(child, nodes, indent, boxes)).join('')
   const link = linkOf(node)
-  const inner = link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">${body}</a>` : body
+  // link 类型自己就渲染 <a>，不要再套一层
+  const inner = link && node.type !== 'link' ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">${body}</a>` : body
   const tag = node.type === 'button' ? 'button' : 'div'
   const typeAttr = node.type === 'button' ? ' type="button"' : ''
   const style = inlineStyle(node, image, boxes ? boxes[node.id] : undefined)

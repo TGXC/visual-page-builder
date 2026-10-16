@@ -48,26 +48,27 @@ describe('M1 编辑器：画布交互与面板', () => {
     vi.useRealTimers()
   })
 
-  it('组件面板列出 17 类组件与 6 套模板', () => {
-    expect(wrapper.findAll('.palette-item').map((item) => item.attributes('data-type'))).toEqual([
-      'text',
-      'button',
-      'input',
-      'rect',
-      'circle',
-      'divider',
-      'frame',
-      'group',
-      'nav',
-      'header',
-      'card',
-      'select',
-      'checkbox',
-      'radio',
-      'textarea',
-      'image',
-      'video',
-    ])
+  it('组件面板按分类列出 40 类组件与 6 套模板，并支持搜索过滤', async () => {
+    const types = wrapper.findAll('.palette-item').map((item) => item.attributes('data-type'))
+    expect(types).toHaveLength(40)
+    expect(new Set(types).size).toBe(40)
+    expect(types).toEqual(expect.arrayContaining(['text', 'button', 'frame', 'group', 'input', 'image', 'nav', 'switch', 'list']))
+
+    const categories = wrapper.findAll('.palette-group').map((group) => group.attributes('data-category'))
+    expect(categories).toEqual(['layout', 'basic', 'form', 'media', 'display'])
+
+    const search = wrapper.find('[data-role="palette-search"]')
+    expect(search.exists()).toBe(true)
+    await search.setValue('表格')
+    const filtered = wrapper.findAll('.palette-item').map((item) => item.attributes('data-type'))
+    expect(filtered).toContain('table')
+    expect(filtered).not.toContain('rect')
+    await search.setValue('没有任何匹配')
+    expect(wrapper.findAll('.palette-item')).toHaveLength(0)
+    expect(wrapper.find('.palette-empty').exists()).toBe(true)
+  })
+
+  it('组件面板列出 6 套模板', () => {
     expect(wrapper.findAll('.template-item').map((item) => item.attributes('data-template'))).toEqual([
       'login',
       'landing',

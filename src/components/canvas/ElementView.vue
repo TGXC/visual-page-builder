@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /**
  * 画布里的一个元素。样式直接复用 core/codegen 的 `inlineStyle`，
- * 这样「画布所见」与「导出 HTML」用的是同一份 CSS 生成逻辑，不会各写一套然后漂移。
+ * 内容则走 `core/components` 的 `renderCanvasContent`——
+ * 与导出 HTML 用的是同一份描述符，不会各写一套然后漂移。
  */
 import { computed } from 'vue'
 import type { NodeId, SceneNode } from '@/core/schema/types'
 import { childrenOf } from '@/core/tree'
 import { inlineStyle, safeUrl } from '@/core/codegen'
+import { getComponent, renderCanvasContent } from '@/core/components'
 import { HANDLES } from '@/core/geometry'
 import { useEditorStore } from '@/stores/editor'
 
@@ -31,14 +33,12 @@ const store = useEditorStore()
 const children = computed(() => childrenOf(props.nodes, props.node.id))
 const selected = computed(() => store.selectedIds.includes(props.node.id))
 const hinted = computed(() => store.hoveredId === props.node.id)
-const editable = computed(() => props.node.type === 'text' || props.node.type === 'header' || props.node.type === 'card' || props.node.type === 'button')
+/** 能否双击直接改文字：由组件描述符声明 */
+const editable = computed(() => getComponent(props.node.type)?.editable === true)
 const text = computed(() => String(props.node.props.text ?? ''))
-const sub = computed(() => String(props.node.props.sub ?? ''))
-const options = computed(() =>
-  String(props.node.props.text ?? '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => item !== ''),
+const content = computed(() => renderCanvasContent(props.node, props.nodes))
+const mutedContent = computed(
+  () => Boolean(props.node.props.placeholder) && !text.value && props.node.type !== 'select',
 )
 
 const backgroundImage = computed(() => (props.node.type === 'image' ? safeUrl(String(props.node.props.src ?? '')) : ''))
@@ -72,39 +72,10 @@ function onDoubleClick(): void {
     :style="style"
     @dblclick.stop="onDoubleClick"
   >
-    <div class="canvas-el__content" :class="{ 'canvas-el__content--muted': node.props.placeholder && !text && node.type !== 'select' }">
-      <template v-if="editing">
-        <slot />
-      </template>
-      <template v-else-if="node.type === 'text' || node.type === 'nav'">{{ text }}</template>
-      <template v-else-if="node.type === 'header' || node.type === 'card'">
-        <div class="canvas-el__title">{{ text }}</div>
-        <div v-if="sub" class="canvas-el__sub">{{ sub }}</div>
-      </template>
-      <template v-else-if="node.type === 'button'">{{ text || '按钮' }}</template>
-      <template v-else-if="node.type === 'input'">{{ String(node.props.placeholder ?? '') }}</template>
-      <template v-else-if="node.type === 'textarea'">{{ String(node.props.placeholder ?? '') }}</template>
-      <template v-else-if="node.type === 'select'">
-        <span class="canvas-el__muted">{{ String(node.props.placeholder ?? '请选择') }}</span>
-        <span class="canvas-el__caret">▾</span>
-      </template>
-      <template v-else-if="node.type === 'checkbox' || node.type === 'radio'">
-        <span v-for="option in options" :key="option" class="canvas-el__choice">
-          <i :class="node.type === 'radio' ? 'canvas-el__dot' : 'canvas-el__box'" />{{ option }}
-        </span>
-      </template>
-      <template v-else-if="node.type === 'image'">
-        <span v-if="!backgroundImage" class="canvas-el__muted">{{ text || '图片' }}</span>
-      </template>
-      <template v-else-if="node.type === 'video'">
-        <span class="canvas-el__play">▶</span>
-      </template>
-      <template v-else-if="node.type === 'group'">
-        <span v-if="!children.length" class="canvas-el__muted">空分组</span>
-      </template>
-      <template v-else-if="node.type === 'frame'">
-        <span v-if="!children.length" class="canvas-el__frame-hint">从左侧拖入组件开始搭建</span>
-      </template>
+    <div class="canvas-el__content" :class="{ 'canvas-el__content--muted': mutedContent }">
+      <slot v-if="editing" />
+      <!-- eslint-disable-next-line vue/no-v-html -->
+      <span v-else class="canvas-el__inner" v-html="content" />
     </div>
 
     <ElementView

@@ -10,8 +10,6 @@ import type {
   Doc,
   NodeId,
   NodePatchData,
-  Page,
-  PageId,
   Patch,
   SceneNode,
 } from '../schema/types'
@@ -82,25 +80,34 @@ function applyNodeData(node: SceneNode, data: NodePatchData): SceneNode {
   return next
 }
 
-function findPage(doc: Doc, pageId: PageId): Page | undefined {
-  return doc.pages.find((page) => page.id === pageId)
+/**
+ * 补丁的目标容器：既可以是页面，也可以是组件（master）。
+ * 组件定义自持一棵节点子树，因此 master 编辑走同一套补丁 / 撤销管线，
+ * 只是 `patch.pageId` 里放的是组件 id。
+ */
+function findContainerNodes(doc: Doc, containerId: string): Record<NodeId, SceneNode> | undefined {
+  const page = doc.pages.find((item) => item.id === containerId)
+  if (page) return page.nodes
+  return doc.symbols?.[containerId]?.nodes
 }
 
-function withNodes(doc: Doc, pageId: PageId, nodes: Record<NodeId, SceneNode>): Doc {
-  return {
-    ...doc,
-    pages: doc.pages.map((page) =>
-      page.id === pageId ? { ...page, nodes: canonicalNodes(normalizeNodeOrder(nodes)) } : page,
-    ),
+function withNodes(doc: Doc, containerId: string, nodes: Record<NodeId, SceneNode>): Doc {
+  const next = canonicalNodes(normalizeNodeOrder(nodes))
+  const page = doc.pages.find((item) => item.id === containerId)
+  if (page) {
+    return { ...doc, pages: doc.pages.map((item) => (item.id === containerId ? { ...item, nodes: next } : item)) }
   }
+  const symbol = doc.symbols?.[containerId]
+  if (!symbol) return doc
+  return { ...doc, symbols: { ...doc.symbols, [containerId]: { ...symbol, nodes: next } } }
 }
 
 /** 把一个补丁应用到文档上；补丁与文档对不上时原样返回 */
 export function applyPatch(doc: Doc, patch: Patch): Doc {
-  const page = findPage(doc, patch.pageId)
-  if (!page) return doc
+  const container = findContainerNodes(doc, patch.pageId)
+  if (!container) return doc
 
-  const nodes: Record<NodeId, SceneNode> = { ...page.nodes }
+  const nodes: Record<NodeId, SceneNode> = { ...container }
 
   switch (patch.op) {
     case 'insert': {

@@ -160,6 +160,26 @@ button {
 
 /* ---------- 组件面板 ---------- */
 
+.panel__count {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--studio-surface-2, #e2e8f0);
+  color: var(--studio-text, #0f172a);
+  font-size: 10px;
+}
+
+.palette-search {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.palette-empty {
+  margin: 2px 0 0;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 11px;
+}
+
 .palette-group + .palette-group {
   margin-top: 8px;
 }
@@ -392,6 +412,11 @@ button {
   padding: 8px;
   line-height: 1.4;
   overflow: hidden;
+}
+
+/* v-html 的内容层：不参与盒模型，让里面的 .canvas-el__title 等元素表现得像直接子节点 */
+.canvas-el__inner {
+  display: contents;
 }
 
 .canvas-el--hidden {

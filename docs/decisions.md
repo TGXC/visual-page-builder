@@ -260,4 +260,28 @@
 
 **代价**：断点表格与 `minWidth` 之间是隐式的两套数值，用户在设置里改 `minWidth` 不会改画布预设宽度；`setViewportWidth`（自定义宽度）不改 `breakpointId`，所以「预览 900px 宽但仍在手机断点编辑」是允许的状态。
 
+## D31：组件库是「描述符注册表」，不是一张写死的 type 表
+
+**决定**：M4 起组件清单由 `src/core/components/index.ts` 的注册表提供（`ComponentDescriptor { type, label, category, icon, container, editable, defaultSize, defaultStyle, defaultProps, toHtml, toCanvasHtml, aiDoc, overridable }`），内置 40 个描述符在模块加载时注册；`schema/catalog` 的 `COMPONENT_TYPES` / `defaultStyleFor` / `defaultPropsFor` / `defaultSizeFor` 全部委托给注册表。第三方 `registerComponent()` 后立刻出现在组件面板（core 不能引 Vue，所以面板用 `subscribeRegistry()` + 一个 `revision` ref 把注册表变更翻译成响应式更新）；类型上 `ComponentType = BuiltinComponentType | (string & {})`，既保留自动补全又允许自定义类型。
+
+**理由**：PLAN 的 M4 要求「插件式 `ComponentDescriptor`，注册第三方假组件可拖入可导出」。写死的 switch 会让每加一个组件都要改 catalog、normalize、codegen、画布四处，插件化无从谈起。
+
+**代价**：注册表是全局可变状态（测试必须 `unregisterComponent` 收尾）；`COMPONENT_TYPES` 是实时数组引用，谁缓存了旧值就会拿到过期清单。
+
+## D32：组件实例在渲染层展开（合成 id），文档里只存一个 instance 节点
+
+**决定**：`Doc.symbols` 存组件定义；页面上放的是 `type: 'instance'` + `props.symbolId`。`expandInstances(page, doc)` 在**渲染时**把 master 子树克隆成 `${实例id}~${master节点id}` 的合成节点（`symbols.syntheticId`），布局引擎、画布、导出共用这份展开结果。实例的选择/拖动经 `realId()` 归一到实例本身；实例的 props 只按定义里的 `overridable` 白名单覆盖 master 根节点。循环引用在展开时用 `stack` 检测，标记 `props.cycle = true` 而不是死循环。
+
+**理由**：如果把实例「展开进文档」，改 master 就要遍历所有页面重写节点，补丁/撤销全部爆掉；白名单覆盖则保证实例不能悄悄引入 master 上没有的属性。合成 id 的 `~` 前缀让「点中实例里的子节点」能反查回实例。
+
+**代价**：`doc.pages[].nodes` 与用户看到的画布不是一对一（合成节点没有补丁记录）；实例节点必须排除在拖拽落点之外（`isContainer()` 显式返回 false），否则拖进去的节点下一趟展开就消失。
+
+## D33：创建组件不入撤销栈，master 编辑走「补丁容器泛化」
+
+**决定**：`captureSymbol` + 替换成实例这一步**直接改写 `history.base`**（不进撤销栈）；而改 master 的节点编辑走正常 `updatePatch`，只是 `patch.pageId` 里放的是**组件 id**——`applyPatch`/`invertPatch` 通过 `findContainerNodes(doc, containerId)` 同时支持「页面」与「组件定义」两种容器，写入前同样过 `canonicalNodes(normalizeNodeOrder(nodes))`。
+
+**理由**：创建组件是「重构文档结构」而不是「编辑内容」，与 M1 的 `applyViewport` 同类；但它之后的 master 编辑必须可撤销（PLAN 验收要求改 master 三实例同步、并能回退），复用补丁管线就免费得到了逆补丁、合并窗口与 canonical 键序。
+
+**代价**：`Patch.pageId` 现在语义是「容器 id」（页面或组件），字段名有误导性；创建组件这一步不可撤销，用户误操作只能手动还原。
+
 

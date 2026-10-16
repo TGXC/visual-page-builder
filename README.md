@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -85,6 +85,23 @@ M2 的 `constraints` 只是「按当前视口等比缩放」，M3 才让**每个
 
 M3 的验收判据「桌面 3 列 → 手机 1 列，互不污染」由 `breakpoints.spec.ts` 的端到端用例覆盖：grid 容器桌面 `columns: 3`（三个子块同一行）→ 手机断点改 `columns: 1`（三个子块同一列、三行），`store.nodes[grid].layout.columns` 仍是 3，`overrides.mobile.layout.columns === 1`，`generatedCss` 含 `@media (max-width: 767.98px)`；切回桌面排版复原。
 
+## M4 已经做了什么：组件体系
+
+M1 的 15 类组件是写死在 `switch` 里的；M4 把它们（外加新增类型，共 **40 个**）搬进「描述符注册表」，于是组件库本身可以被插件扩展，页面上还能把一棵选区「变成组件」——改一次 master，所有实例同步。
+
+| # | 能力 | 实现 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 描述符注册表（插件式） | `src/core/components/index.ts`：`ComponentDescriptor { type, label, category, icon, container, editable, defaultSize/ Style/ Props, toHtml, toCanvasHtml, aiDoc, overridable }`；`registerComponent / unregisterComponent / getComponent / searchComponents / componentsByCategory`；core 不引 Vue，面板用 `subscribeRegistry()` 订阅 | `tests/unit/components.spec.ts`（19）、`tests/unit/componentsRender.spec.ts`（8） |
+| 2 | 组件库 40 类 + 分类 + 搜索 | 布局 7（frame/group/section/container/columns/divider/spacer）、基础 8、表单 12（含 switch/slider/date/number/file/rating）、媒体 5、展示 8；`[data-role=palette-search]` 按中文名 / type / 分类 / aiDoc 过滤 | `tests/component/editor.spec.ts`「按分类列出 40 类组件…并支持搜索过滤」 |
+| 3 | Group / Container | `section / container / columns` 等注册为 `container: true`；`core/dnd` 的 `isContainer()` 改为问注册表（第三方容器类型自动生效），实例排除在落点外 | `tests/unit/dnd.spec.ts`（11） |
+| 4 | 把选区变成组件（master） | `captureSymbol(nodes, rootId, name, overridable)` 克隆子树成 `SymbolDef`；`store.createComponent()` 把选区替换成一个 `instance` 节点 | `tests/unit/symbols.spec.ts`（16）、`tests/component/symbols.spec.ts` |
+| 5 | 实例展开与同步 | `expandInstances(page, doc)` 在渲染层克隆 master 子树（id = `${实例id}~${masterId}`），布局 / 画布 / 导出共用；改 master 三实例同步且可撤销 | `symbols.spec.ts`、`symbols.spec.ts`（组件测试） |
+| 6 | 实例覆盖白名单 | 实例 props 只有落在 `def.overridable`（缺省 `text/color/fontSize/bg`）里的键才覆盖 master 根节点 | `tests/unit/symbols.spec.ts` |
+| 7 | master 编辑走同一套补丁 | `core/patch` 的容器查找泛化：`patch.pageId` 可以是页面 id 或组件 id，撤销 / 合并窗口 / canonical 键序全部复用 | `symbols.spec.ts`、`decisions.md` D33 |
+| 8 | 循环引用检测 | `symbolReferences()` + 展开时的 `stack`：自引用 / A↔B 互引标记 `props.cycle = true`，不会死循环；`symbolId` 缺失或组件不存在标记 `props.unknown` | `tests/unit/symbols.spec.ts` |
+
+PLAN 验收「注册第三方假组件可拖入可导出」由组件测试覆盖：`registerComponent({ type: 'my-widget', … })` → 立刻出现在面板 → `dropOn` 拖进画布 → `store.generatedHtml` 含 `<span class="widget">挂件</span>` 与 `el--my-widget`（用例结尾 `unregisterComponent` 收尾）。
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -111,7 +128,7 @@ npm run preview    # 预览生产构建
 ```
 src/
 ├── core/                    # 纯逻辑，禁止 import Vue / 组件 / store（ESLint 强制）
-│   ├── schema/              # 文档模型、收敛(normalize)、v1 迁移(migrate)、导入入口(parse)、字段目录(catalog)
+│   ├── schema/              # 文档模型、收敛(normalize)、v1 迁移(migrate)、导入入口(parse)、catalog / v1 表
 │   ├── tree/                # 元素树：childrenOf / descendantsOf / normalizeNodeOrder / canonicalNodes
 │   ├── patch/               # 补丁协议：applyPatch / invertPatch（撤销靠逆补丁，不存快照）
 │   ├── history/             # 补丁历史栈 + 400ms 合并窗口
@@ -124,6 +141,9 @@ src/
 │   ├── dnd/                 # dropParentAt() 落点 + reparentPatches() 换父级（位置换算到新容器）
 │   ├── spacing/             # spacingHints()：拖动中的等距提示
 │   ├── responsive/          # 断点继承链 / 有效节点求解 / writeOverride() 只存差异 / media query 上界
+│   ├── components/          # 40 个组件的描述符注册表（插件式，registerComponent + subscribeRegistry）
+│   ├── symbols/             # 组件定义 / 实例展开（合成 id）/ 覆盖白名单 / 循环引用检测
+│   ├── html/                # escapeHtml / safeUrl（codegen 与组件描述符共用）
 │   └── export/              # drawPage()：PNG 近似截图
 ├── utils/textMeasure.ts     # 离屏 canvas 折行测量（碰 document，所以不在 core）
 ├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史 + 布局
@@ -138,18 +158,18 @@ tests/
 └── perf/                    # 1000 节点布局性能（npm run test:perf，独立 config）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D30）
+├── decisions.md             # 架构决策记录（ADR，D1–D33）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M2）
+## 质量数据（M4）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 23 个文件 / **330 个用例全绿** |
-| 覆盖率 | 语句 97.48% · 分支 91.27% · 函数 98.92% · 行 99.69%（阈值 90） |
-| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.63ms**（阈值 8ms） |
-| 构建 | 65 modules；JS 176.28 kB（**gzip 62.62 kB**）；CSS 16.62 kB（gzip 3.45 kB） |
+| 测试 | 27 个文件 / **379 个用例全绿** |
+| 覆盖率 | 语句 97.61% · 分支 91.32% · 函数 99.25% · 行 99.73%（阈值 90） |
+| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **4.04ms**（阈值 8ms） |
+| 构建 | 69 modules；JS 194.19 kB（**gzip 68.47 kB**）；CSS 16.94 kB（gzip 3.51 kB） |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 
 ## 架构决策
@@ -164,6 +184,8 @@ M2 新增 D16–D25：`safeUrl()` 放行光栅 dataURL、切视口不进历史�
 布局面板只写 `layout`、折行里「整行 fill」按容器高兜底、grid 的 `justify` 表示单元内水平偏移。
 M3 新增 D26–D30：断点覆盖只存差异（相对更宽一级算）、`NodeOverride.layout` 的嵌套子对象整体替换、
 导出与预览断点解耦、media query 上界 `minWidth − 0.02` + `!important` + 复位声明、断点切换用预设视口宽度。
+M4 新增 D31–D33：组件库是描述符注册表（插件式 + 订阅通知）、实例在渲染层展开成合成 id（文档里只有 instance 节点）、
+创建组件不入撤销栈但 master 编辑走「补丁容器泛化」。
 
 ## 本机开发环境的三个坑（Windows + 受限沙箱）
 
@@ -174,7 +196,12 @@ M3 新增 D26–D30：断点覆盖只存差异（相对更宽一级算）、`Nod
 
 ## 已知缺口 / 未做
 
-- **M4–M8 尚未实现**：组件体系（Group/Container/组件库 30+）、Vue/React 代码生成、AI 助手都在 [PLAN.md](PLAN.md) 里。M3 做完的是「断点真的能各写各的」：覆盖只存差异、画布显示断点有效值、导出带 media query。
+- **M5–M8 尚未实现**：Vue/React 代码生成、自定义组件编辑态、AI 助手都在 [PLAN.md](PLAN.md) 里。M4 做完的是「组件库插件化 + 选区变组件 + 实例同步」。
+- **M4 的取舍与已知缺口**：
+  - 组件面板 40 类是内置的，`Doc` 里**不存**自定义组件定义（`symbols` 是文档内的组件）；跨文档复用要先做「组件库 / 素材库」（M7 计划）。
+  - 没有「组件编辑态」的独立画布：改 master 目前要选中实例后由属性面板/布局面板写入，双击进组件的交互 M7 再做。
+  - 实例的覆盖白名单不可视化配置（描述符里写死 `overridable`），属性面板会对白名单外的键显示「不生效」提示，但还没做。
+  - `expandInstances()` 每帧随节点表重算（1000 节点实例全展开时会有额外开销），没有做展开结果缓存。
 - **M3 的取舍与已知缺口**：
   - 断点表格 `Doc.breakpoints` 里的 desktop / tablet / mobile 目前**不可增删**（只有 `minWidth` 与 `enabled` 会被尊重），设置 UI 还没做。
   - `NodeOverride.layout` 的嵌套子对象是整体替换（D27），所以窄断点改 `size.w` 会连 `size.h` 一起写进覆盖。

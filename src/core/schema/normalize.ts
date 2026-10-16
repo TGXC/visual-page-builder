@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import { canonicalNodes, normalizeNodeOrder } from '../tree'
+import { hasComponent } from '../components'
 import {
-  COMPONENT_TYPE_SET,
   CONTENT_KEYS,
   DEFAULT_BREAKPOINTS,
   DEFAULT_STYLE,
@@ -91,7 +91,7 @@ function pick<T extends string>(value: unknown, allowed: readonly T[], fallback:
 }
 
 export function normalizeType(raw: unknown): ComponentType {
-  return typeof raw === 'string' && COMPONENT_TYPE_SET.has(raw) ? (raw as ComponentType) : 'rect'
+  return typeof raw === 'string' && hasComponent(raw) ? (raw as ComponentType) : 'rect'
 }
 
 export function defaultLayout(size: { w: number; h: number } = { w: 160, h: 60 }): LayoutSpec {

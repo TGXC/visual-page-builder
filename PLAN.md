@@ -129,6 +129,8 @@ npm run build
 
 **验收**：单测（创建/展开/覆盖/还原/循环检测）+ 组件测试（改 master 3 实例同步、注册第三方假组件可拖入可导出）。判据：组件库 ≥30 个且分类+搜索可用。
 
+**实现偏离（已完成）**：组件库实际 **40 个**（布局 7 / 基础 8 / 表单 12 / 媒体 5 / 展示 8），比计划的 30+ 多出的部分来自「并入表单字段与校验引擎」——校验引擎本身（规则校验、错误提示）未做，只落了字段控件。`ComponentDescriptor` 除了 `toHtml` 还加了 `toCanvasHtml`（画布渲染与导出分开，见 `src/core/components/index.ts`；注册表用 `subscribeRegistry()` 通知面板，D31）。组件与实例：`Doc.symbols` 存定义、页面只存 `instance` 节点，渲染时 `expandInstances()` 展开成合成 id（D32）；master 编辑复用补丁管线（`patch.pageId` 可以是组件 id，D33），创建组件这一步不入撤销栈。**未做**：组件编辑态独立画布（双击进组件的交互）、跨文档组件库、`overridable` 白名单的可视化配置。
+
 ### M5 产出
 
 **任务**：`core/codegen`（干净 HTML+CSS、语义标签、BEM/原子类可选）、Vue 3 SFC 导出、React JSX（可延后）、静态多页 zip、PNG 保真截图、SEO/元信息。

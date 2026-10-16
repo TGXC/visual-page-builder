@@ -13,12 +13,17 @@
 import type { Box, NodeId, Page, Patch, SceneNode } from '../schema/types'
 import { isDescendantOf, subtreeIds } from '../tree'
 import { movePatch, updatePatch } from '../ops'
+import { isContainerType } from '../components'
+import { INSTANCE_TYPE } from '../symbols'
 
-/** 能装下别的节点的类型（M4 的自定义组件会在这里扩展） */
-const CONTAINER_TYPES: ReadonlySet<SceneNode['type']> = new Set(['frame', 'group'])
-
+/**
+ * 能装下别的节点的类型：问组件注册表（M4 起 `section / container / columns` 等都是容器，
+ * 第三方注册的容器类型也一并生效）。
+ *
+ * 实例例外：它的内容由 master 决定，拖进去的节点下一趟展开就会消失。
+ */
 export function isContainer(node: SceneNode): boolean {
-  return CONTAINER_TYPES.has(node.type)
+  return node.type !== INSTANCE_TYPE && isContainerType(node.type)
 }
 
 export interface DropQuery {
