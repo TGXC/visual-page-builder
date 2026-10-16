@@ -105,7 +105,7 @@ npm run dev       # 手动：做出一个完整落地页（拖 15 类组件、�
 
 ### M2 布局引擎
 
-**任务**：`core/layout`（`computeLayout` 纯函数、free/vertical/horizontal/grid、`SizeSpec` fixed/hug/fill/ratio、padding/gap/align/justify/wrap、constraints）、拖拽换父级（几何取最深容器 + 排除自身子孙）、布局面板、插入位指示线与等距提示、`hug` 文本测量（`ResizeObserver`，无浏览器时估算并标记）。
+**任务**：`core/layout`（`computeLayout` 纯函数、free/vertical/horizontal/grid、`SizeSpec` fixed/hug/fill/ratio、padding/gap/align/justify/wrap、constraints）、拖拽换父级（几何取最深容器 + 排除自身子孙）、布局面板、插入位指示线与等距提示、`hug` 文本测量（**实现改为离屏 canvas 测量 + 注入，不用 `ResizeObserver`，见 `docs/decisions.md` D19**；无浏览器时估算并标记 `estimated`）。
 
 **验收**
 ```powershell

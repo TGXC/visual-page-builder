@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）与 M1（WebBuilder 18 项能力复刻）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -51,6 +51,23 @@ M1 的验收标准是「**相对 WebBuilder 不倒退**」：v1 能做的 18 项
 
 超出 WebBuilder 的部分（v2 数据模型自带）：显式 `order` 的树结构、`layout` 与 `style` 分离、`overrides` 断点覆盖的存储位、`Patch` 补丁协议（为 M5 的 AI 只产出补丁铺路）。
 
+## M2 已经做了什么：布局引擎
+
+M1 的画布是「绝对定位 + 手动拖」，M2 把它变成真正的布局系统：同一份 `computeLayout()` 同时喂给画布、导出 HTML 与命中检测，容器模式、尺寸模式、断点约束、拖拽换父级都由它决定。
+
+| # | 能力 | 实现 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 四种容器模式 | `src/core/layout/index.ts`：`free`（用 `layout.position` + `constraints`）、`vertical` / `horizontal`（主轴堆叠 + `gap` + `justify` + `align` + `wrap` 折行）、`grid`（`columns` / 单元内偏移 / 整行 fill 均分剩余高度） | `tests/unit/layout.spec.ts`（27）、`layoutEdges.spec.ts`（14） |
+| 2 | 四种尺寸模式 | `fixed` / `hug`（叶子靠测量、容器靠子节点并集）/ `fill`（主轴按 flex-grow 分剩余、交叉轴撑满）/ `ratio`（value 是 w/h） | 同上 + `tests/perf/layout.perf.spec.ts` |
+| 3 | 断点约束 | `constraints.h`（left / right / left-right / center / scale）与 `constraints.v`（top / bottom / top-bottom / center / scale），按「设计盒 → 当前盒」的 delta 保边距 | `tests/unit/layoutEdges.spec.ts` |
+| 4 | 拖拽换父级 | `src/core/dnd/index.ts`：`dropParentAt()` 取最深的容器（排除自身与子孙、排除隐藏）、`reparentPatches()` 把 `position` 换算到新容器内容框，**视觉不动**；画布显示落点虚线 + 插入位指示线 | `tests/unit/dnd.spec.ts`（10）、`editor.spec.ts` |
+| 5 | 等距提示 | `src/core/spacing/index.ts`：拖动中显示到左右/上下邻居的间距，两侧等距时高亮（阈值 `MAX_HINT_GAP = 400`，等距判定复用磁吸的 6px） | `tests/unit/spacing.spec.ts`（4）、`editor.spec.ts` |
+| 6 | 文本测量 | `src/utils/textMeasure.ts`：离屏 canvas 折行测量（jsdom / 无 Canvas 时退回字符估算并标记 `estimated`），经 `LayoutInput.measure` 注入 core | `tests/unit/textMeasure.spec.ts`（5）、`measure.spec.ts`（6） |
+| 7 | 布局面板 | `src/components/editor/LayoutPanel.vue`：模式、尺寸模式、对齐 / 主轴分布 / 换行、gap、columns、四边 padding（只写 `layout`，像素值仍归属性面板） | `editor.spec.ts` |
+| 8 | 性能 | 1000 节点整树布局中位数 **2.65ms**（最快 2.49ms）；`childrenOf()` 的 O(n²) 换成每趟一次的 `buildChildrenIndex()` | `npm run test:perf`（阈值 < 8ms） |
+
+M2 的验收判据「1440↔375 宽度下 `fill` / `hug` / `constraints` 正确」由 `layoutEdges.spec.ts` 的断点约束用例（设计视口 600×400 → 当前 900×600）与 `editor.spec.ts` 的「切模式再切回 free 位置还原」用例覆盖。
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -65,6 +82,7 @@ npm install
 
 npm run dev        # 开发服务器
 npm run test       # Vitest 全量单测 + 组件测试
+npm run test:perf  # 1000 节点布局性能（阈值：整树 < 8ms）
 npm run coverage   # 覆盖率（阈值：语句/分支/函数/行 ≥ 90）
 npm run lint       # ESLint（含 core 分层规则）
 npm run build      # vue-tsc 严格类型检查 + 生产构建
@@ -85,29 +103,35 @@ src/
 │   ├── codegen/             # HTML / CSS 生成；inlineStyle() 画布与导出共用
 │   ├── templates/           # 6 套示例模板
 │   ├── persistence/         # localStorage 读写 + 脏存档修正
+│   ├── layout/              # computeLayout()：四种容器模式 / 四种尺寸模式 / constraints / hug 测量注入
+│   ├── dnd/                 # dropParentAt() 落点 + reparentPatches() 换父级（位置换算到新容器）
+│   ├── spacing/             # spacingHints()：拖动中的等距提示
 │   └── export/              # drawPage()：PNG 近似截图
-├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史
+├── utils/textMeasure.ts     # 离屏 canvas 折行测量（碰 document，所以不在 core）
+├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史 + 布局
 ├── components/
 │   ├── canvas/              # CanvasStage（指针交互）/ ElementView（单个元素渲染）
-│   └── editor/              # EditorShell / PalettePanel / LayerPanel / PropPanel / CodePanel / PageTabs / StatusBar / ContextMenu
+│   └── editor/              # EditorShell / PalettePanel / LayerPanel / PropPanel / LayoutPanel / CodePanel / PageTabs / StatusBar / ContextMenu
 ├── styles/                  # editor.css（编辑器三栏）+ tokens.css + base.css
 └── main.ts
 tests/
 ├── unit/                    # 纯逻辑单测 + fixtures/（真实 WebBuilder v1 数据夹具）
-└── component/               # 组件测试（@vue/test-utils + jsdom + helpers.ts 布局垫片）
+├── component/               # 组件测试（@vue/test-utils + jsdom + helpers.ts 布局垫片）
+└── perf/                    # 1000 节点布局性能（npm run test:perf，独立 config）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D15）
+├── decisions.md             # 架构决策记录（ADR，D1–D25）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M1）
+## 质量数据（M2）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 14 个文件 / **231 个用例全绿** |
-| 覆盖率 | 语句 98.27% · 分支 91.93% · 函数 100% · 行 100%（阈值 90） |
-| 构建 | 58 modules；JS 150.81 kB（**gzip 54.30 kB**）；CSS 14.81 kB（gzip 3.19 kB） |
+| 测试 | 20 个文件 / **297 个用例全绿** |
+| 覆盖率 | 语句 98.16% · 分支 91.41% · 函数 100% · 行 100%（阈值 90） |
+| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **2.65ms**（阈值 8ms） |
+| 构建 | 64 modules；JS 169.01 kB（**gzip 60.14 kB**）；CSS 16.31 kB（gzip 3.41 kB） |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 
 ## 架构决策
@@ -117,6 +141,9 @@ v1 迁移只做保守映射（不猜用户意图）、`SceneNode` 命名避开 D
 M1 新增 D9–D15：`Page.nodes` 键序规范化、画布与导出共用 `inlineStyle()`、拖拽手写 Pointer Events、
 Vue Boolean prop「没传即 false」、`event.target` 可能不是 Element、`NodeOverride.layout` 是 `Partial`、
 store 的 `updateNode/updateSelection` 对 `style/props/meta` 浅合并。
+M2 新增 D16–D25：`safeUrl()` 放行光栅 dataURL、切视口不进历史栈、`TextMeasure` 可返回 `undefined`、
+折行测量在 `utils` 且不用 `ResizeObserver`、`ratio` 语义是 w/h、等距提示阈值 400、`subtreeOf()` 返回 id、
+布局面板只写 `layout`、折行里「整行 fill」按容器高兜底、grid 的 `justify` 表示单元内水平偏移。
 
 ## 本机开发环境的三个坑（Windows + 受限沙箱）
 
@@ -127,7 +154,12 @@ store 的 `updateNode/updateSelection` 对 `style/props/meta` 浅合并。
 
 ## 已知缺口 / 未做
 
-- **M2–M8 尚未实现**：布局引擎（`free / vertical / horizontal / grid` + `fixed / hug / fill / ratio`）、真断点覆盖与 media query 导出、组件体系、Vue/React 代码生成、AI 助手都在 [PLAN.md](PLAN.md) 里。M1 做完的只是「与 WebBuilder 等价的 18 项」。
+- **M3–M8 尚未实现**：真断点覆盖（`overrides` 生效 + 覆盖标记 + media query 导出）、组件体系（Group/Container/组件库 30+）、Vue/React 代码生成、AI 助手都在 [PLAN.md](PLAN.md) 里。M2 做完的是「画布真的会布局」：四种容器模式、四种尺寸模式、断点约束、换父级与等距提示。
+- **M2 的取舍与已知缺口**：
+  - `estimated`（无 Canvas 时估算出的 hug 尺寸）已经在 `computeLayout()` 里标出，但**画布还没可视化**「这是估算值」。
+  - 水平折行里「整行都是 `fill` 高」的行按容器高兜底（D24），视觉上会比相邻行高很多；grid 的 `justify` 在 grid 模式下表示「单元内水平偏移」而不是主轴分布（D25）。
+  - `constraints` 只在 `free` 模式生效（流式布局里位置由布局算法决定），从 free 切到流式再切回来位置会还原 —— 这是 M2 判据要求的，但也意味着流式模式下改「位置」暂时看不到效果。
+  - 文本测量固定 `FONT_STACK`、缓存整体清空（D19）；字体族不可配。
 - **`setBreakpoint / applyViewport` 直接改写 `history.base`，不走补丁、不进历史**：M1 的取舍是「切视口不污染撤销栈」，代价是切视口后无法撤销回去；M3 做真正的断点编辑时要重构成可撤销的补丁。
 - **PNG 导出是近似截图**：`drawPage()` 手绘矩形与文字，字体度量与浏览器渲染有偏差；M7 会换成真实位图。
 - **真实浏览器视觉验证没有自动化证据**：本机 headless Edge 被沙箱的命名管道限制拦住（`mojo ... platform_channel.cc:187 Check failed: . : 拒绝访问 (0x5)`），拖拽与像素级对齐只能人工打开 dev 服务器确认。

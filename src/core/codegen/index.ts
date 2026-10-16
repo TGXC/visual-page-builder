@@ -5,7 +5,8 @@
  * 「语义化 HTML + 独立 CSS 类」，这里把差异隔离在 `generateCss` 与
  * `inlineStyle` 两个入口，避免到时候重写整条导出链路。
  */
-import type { Doc, NodeId, Page, SceneNode } from '../schema/types'
+import type { Box, Doc, NodeId, Page, SceneNode } from '../schema/types'
+import { computeLayout } from '../layout'
 import { childrenOf } from '../tree'
 
 export function escapeHtml(text: string): string {
@@ -50,14 +51,22 @@ function resolvePage(doc: Doc, key: string): Page {
   )
 }
 
-export function inlineStyle(node: SceneNode, backgroundImage = ''): string {
+/**
+ * 内联样式。`box` 由布局引擎（`core/layout`）给出；不传时退回节点自己的 position/size，
+ * 这样 M1 的自由布局行为不变，M2 起画布与导出都走同一份几何。
+ */
+export function inlineStyle(node: SceneNode, backgroundImage = '', box?: Box): string {
   const { style, layout } = node
+  const x = box ? box.x : layout.position.x
+  const y = box ? box.y : layout.position.y
+  const w = box ? box.w : (layout.size.w.value ?? 0)
+  const h = box ? box.h : (layout.size.h.value ?? 0)
   const parts: string[] = [
     'position:absolute',
-    `left:${px(layout.position.x)}`,
-    `top:${px(layout.position.y)}`,
-    `width:${px(layout.size.w.value ?? 0)}`,
-    `height:${px(layout.size.h.value ?? 0)}`,
+    `left:${px(x)}`,
+    `top:${px(y)}`,
+    `width:${px(w)}`,
+    `height:${px(h)}`,
     'box-sizing:border-box',
   ]
 
@@ -143,23 +152,36 @@ function linkOf(node: SceneNode): string {
   return safeUrl(text(node.props.link))
 }
 
-function renderNode(node: SceneNode, nodes: Record<NodeId, SceneNode>, indent: string): string {
+function renderNode(
+  node: SceneNode,
+  nodes: Record<NodeId, SceneNode>,
+  indent: string,
+  boxes?: Record<NodeId, Box>,
+): string {
   const children = childrenOf(nodes, node.id)
   const image = backgroundImageOf(node)
-  const body = contentHtml(node) + children.map((child) => renderNode(child, nodes, indent)).join('')
+  const body = contentHtml(node) + children.map((child) => renderNode(child, nodes, indent, boxes)).join('')
   const link = linkOf(node)
   const inner = link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">${body}</a>` : body
   const tag = node.type === 'button' ? 'button' : 'div'
   const typeAttr = node.type === 'button' ? ' type="button"' : ''
-  return `${indent}<${tag} class="el el--${node.type}" data-id="${node.id}"${typeAttr} style="${inlineStyle(node, image)}">${inner}</${tag}>`
+  const style = inlineStyle(node, image, boxes ? boxes[node.id] : undefined)
+  return `${indent}<${tag} class="el el--${node.type}" data-id="${node.id}"${typeAttr} style="${style}">${inner}</${tag}>`
 }
 
-export function generateBodyHtml(doc: Doc, pageKey: string): string {
+/**
+ * 页面内容 HTML。`boxes` 可复用调用方已经算好的布局结果（画布/预览），
+ * 不传时这里自己按页面视口算一次——两条路径的几何来自同一个引擎，误差才能是 0。
+ */
+export function generateBodyHtml(doc: Doc, pageKey: string, boxes?: Record<NodeId, Box>): string {
   const page = resolvePage(doc, pageKey)
   const root = page.nodes[page.root]
   if (!root) return ''
+  const layout = boxes
+    ? { boxes }
+    : computeLayout({ nodes: page.nodes, rootId: page.root, viewport: page.viewport })
   const inner = childrenOf(page.nodes, page.root)
-    .map((node) => renderNode(node, page.nodes, ''))
+    .map((node) => renderNode(node, page.nodes, '', layout.boxes))
     .join('\n')
   const pageStyle = [
     'position:relative',
@@ -184,7 +206,12 @@ export interface CodegenOptions {
   title?: string
 }
 
-export function generateHtml(doc: Doc, pageKey: string, options: CodegenOptions = {}): string {
+export function generateHtml(
+  doc: Doc,
+  pageKey: string,
+  options: CodegenOptions = {},
+  boxes?: Record<NodeId, Box>,
+): string {
   const page = resolvePage(doc, pageKey)
   const title = options.title ?? doc.name
   return [
@@ -206,7 +233,7 @@ export function generateHtml(doc: Doc, pageKey: string, options: CodegenOptions 
     '</style>',
     '</head>',
     '<body>',
-    generateBodyHtml(doc, page.id),
+    generateBodyHtml(doc, page.id, boxes),
     '</body>',
     '</html>',
     '',

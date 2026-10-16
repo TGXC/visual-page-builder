@@ -156,3 +156,68 @@
 
 **代价**：切视口无法撤销回上一个宽度；且这条路径绕过了补丁合并，M3 做真正的断点编辑（把覆盖写进 `overrides`）时必须把它重构成可撤销的补丁。
 
+## D18：`TextMeasure` 允许返回 `undefined`
+
+**决定**：`export type TextMeasure = (node: SceneNode, available: { w: number }) => { w: number; h: number } | undefined`；`hugSize()` 写成 `const measured = input.measure?.(node, { w: available.w }); if (measured) return measured`，拿不到测量值时退回 `estimateTextSize()` 并把节点 id 记进 `estimated`。
+
+**理由**：测量依赖 Canvas，jsdom / 无 `document` 的环境拿不到上下文，`measureText` 必须能诚实地说「量不了」。原来的写法 `if (input.measure) return input.measure(...)` 把 `undefined` 当尺寸返回，`placeFree()` 一读 `.w` / `.h` 就 `TypeError: Cannot read properties of undefined (reading 'h')` —— 类型上 `measure` 返回 `{w,h}` 看不出这个问题，只有把真实测量接进 store（`npm run test` 的组件用例）才会崩。
+
+**代价**：`LayoutResult.estimated` 变成必须消费的数据（UI 要能标出「这个是估算的」）；测量函数的调用方必须处理 `undefined`。
+
+## D19：折行测量放在 `src/utils/textMeasure.ts`，用离屏 canvas 而不是 `ResizeObserver`
+
+**决定**：`measureText` 每次调用现取一个离屏 `<canvas>` 的 2D 上下文（`createTextMeasurer(context)` 负责贪心折行与缓存，缓存上限 800，满则整体清空），按 `(文本, 字号, 可用宽度)` 计算尺寸；`src/core/**` 不引入它，只通过 `LayoutInput.measure` 注入。jsdom / 无 `document` 直接返回 `null`（避免 jsdom 打 `getContext` 的噪音）。
+
+**理由**：`core/layout` 必须保持纯函数（ESLint 分层禁令），而测量要碰 `document`，所以宿主侧实现、core 侧注入。PLAN 里写的是 `ResizeObserver`，但测量本身是纯函数：可用宽度由布局趟给出，任何容器尺寸变化都会重算整棵树，不需要观察 DOM 尺寸；`ResizeObserver` 只能告诉我们「元素变了」，拿不到「文本该多宽」。没有 Canvas 时用字符估算并标记 `estimated`，符合「无浏览器时估算并标记」的判据。
+
+**代价**：字体族固定为 `FONT_STACK`（受控样式里没有 `fontFamily`），与浏览器真实字体栈可能有细微差异；缓存整体清空是笨办法，文本量极大时会重复测量。
+
+## D20：`ratio` 的 value 语义是 w/h
+
+**决定**：`SizeSpec.value`（`kind === 'ratio'`）表示宽高比 w/h。已知高求宽要**乘**（`ratioTimes`），已知宽求高要**除**（`ratioOf`）；两个轴都是 ratio 时以可用宽度为基准取宽、按 h 轴的比例反算高（语义本身有歧义，取宽为准）；value 缺省 / 0 / 负数一律按 1 处理。
+
+**理由**：原来 `resolveSize()` 对 w 轴也走 `ratioOf(sw, h)`，即 `w = h / ratio` —— 与 h 轴的公式自相矛盾（同一份 `types.ts` 注释写的是 w/h），结果是「16:9 的图设成 ratio 后变成 9:16」。这个 bug 只有「w 是 ratio、h 是 fixed」这一条分支能抓到，主干用例全是 h 轴 ratio，所以一直没暴露；补齐边角用例时 `expected { w: 200 } received { w: 50 }` 才现形。
+
+**代价**：两个轴都写 ratio 时另一边的值被忽略（不是「取较小者」），需要产品上明确告知；`ratioValue` 的兜底让非法值静默变成 1，写错数字不会报错。
+
+## D21：等距提示的阈值是 `MAX_HINT_GAP = 400`
+
+**决定**：`spacingHints()` 只在邻居间距 ≤ 400px 时给出提示，且「两侧间距之差 ≤ `SNAP_THRESHOLD`（6，复用 `core/geometry`）」才标成 `equal`。提示对象是**同父级**、非隐藏、非正在拖动的节点，交叉轴必须真有重叠。
+
+**理由**：1440 宽的页面上，任意两个元素都能量出距离，全画出来等于没有提示 —— 距离标签会盖住整个画布。400px 约等于「一屏内的相邻元素」，是这个尺度的自然分段；`equal` 复用磁吸阈值，保证「显示等距」与「拖到等距会自动吸附」是同一个判断。
+
+**代价**：400 是拍出来的常数，超长页面（例如 2000px 高的 hero 区）里的等距关系不会被提示；同父级限制意味着跨容器（例如 section 里的 card 与 section 外的 card）看不到间距。
+
+## D22：`subtreeOf()` 返回 id 列表，而不是节点列表
+
+**决定**：`core/layout` 的 `subtreeOf(id)` 收集的是 `NodeId`（用 `kidsOf(id).map((child) => child.id)` 展开），用于 hug 容器长大后「清掉子树里已排好的盒子再重排」。
+
+**理由**：原来写的是 `const stack = [...kidsOf(id)]`（`kidsOf` 返回 `SceneNode[]`），于是 `delete out[descendant]` 实际在按 `"[object Object]"` 删键 —— 等于没删，`seen.delete()` 同理。这是 `vue-tsc` 报 `Conversion of type 'SceneNode | undefined' to type 'string'` 才暴露的（vitest 只剥类型不检查，运行也不会抛错）。当前重排路径会把子树全部重排一遍，所以这个 bug 是潜伏的，但它让「清理」变成空操作，迟早会在某个只重排部分子树的优化里冒出来。
+
+**代价**：多两次 `map()` 分配；类型上再也不能把节点对象当 id 传（这正是想要的）。
+
+## D23：布局面板只写 `layout`，像素位置与尺寸仍在属性面板
+
+**决定**：`LayoutPanel.vue` 只调 `store.updateLayout(id, patch)`（改 `mode` / `size.kind` / `padding` / `gap` / `align` / `justify` / `wrap` / `columns`），`layout.position` 与 `size.value` 的数值编辑仍由 `PropPanel.vue` 负责；`updateLayout` 做 `{ ...node.layout, ...patch }` 后走一条 `layout:<id>` 合并键的补丁。
+
+**理由**：两个面板都能写同一个字段就会出现「谁最后写谁赢」的竞态，且合并键不同会让两条连续的编辑无法合并成一条撤销。切到流式布局后 `position` 只是被暂时忽略（切回 free 还原），面板不应该在切模式时偷偷改写它 —— M2 判据明确要求「切回 free 位置还原」。
+
+**代价**：用户在流式布局下改「位置」不会立刻看到效果（要切回 free），面板文案必须解释这一点；`updateLayout` 与 `updateNode` 是两条入口，新增字段时要决定归属。
+
+## D24：水平折行里「整行都是 fill 高」的行按容器高兜底
+
+**决定**：`wrap` 生效时行高由本行「有内容高」的子节点决定（fill 高的算 0）；若整行都没有内容高，该行行高为 0，于是 fill 高的子节点退回「撑满容器交叉轴」。
+
+**理由**：一行里全是 `fill` 时没有任何内在高度可依据，要么给 0（元素塌掉看不见），要么给容器高。选后者是为了「拖进去至少看得见」，代价是这一行会比相邻行高很多。等 M3 引入断点覆盖后，这种行应该由断点显式给高度。
+
+**代价**：视觉上同一容器里可能出现一高一矮的行；语义上「行高 0」与「行高 = 容器高」是两种极端，中间态要靠用户显式设高。
+
+## D25：grid 的 `justify` 表示单元内的**水平**偏移，`align` 表示垂直
+
+**决定**：`mode === 'grid'` 时，单元内水平偏移取 `justify`（`end` / `center` / 其它一律 0），垂直偏移取 `align`（`center` / `end` / 其它 0），并用 `Math.min(w, cellW)` 夹住宽度防止溢出单元。
+
+**理由**：grid 的「行内主轴对齐」在语义上对应 flex 的 justify，但轴变成了「单元内」而不再是「容器主轴」。复用这两个字段可以少两个受控键（受控样式已经有 22 个键，能不加就不加），代价是同一个字段在 grid 与 flex 下含义不同 —— 面板文案要在 grid 模式下换成「单元内对齐」。
+
+**代价**：`stretch` 在 grid 下没有实现（宽度靠 `size.kind === 'fill'` 表达），跨模式读代码时需要留意 `justify` 的语义切换。
+
+

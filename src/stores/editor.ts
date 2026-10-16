@@ -47,7 +47,10 @@ import {
 import { AUTOSAVE_DELAY, loadDoc, saveDoc } from '@/core/persistence'
 import { childrenOf, nextOrder } from '@/core/tree'
 import { generateCss, generateHtml } from '@/core/codegen'
+import { computeLayout } from '@/core/layout'
+import { reparentPatches } from '@/core/dnd'
 import { createFromTemplate } from '@/core/templates'
+import { measureText } from '@/utils/textMeasure'
 
 export const MIN_ZOOM = 0.25
 export const MAX_ZOOM = 2
@@ -108,7 +111,17 @@ export const useEditorStore = defineStore('editor', () => {
   const canRedoNow = computed(() => canRedo(history.value))
   const labels = computed(() => historyLabels(history.value))
   const position = computed(() => historyPosition(history.value))
-  const generatedHtml = computed(() => generateHtml(doc.value, activePage.value.id))
+  const layout = computed(() =>
+    computeLayout({
+      nodes: nodes.value,
+      rootId: rootId.value,
+      viewport: activePage.value.viewport,
+      measure: measureText,
+    }),
+  )
+  /** 全页几何（画布与导出共用；free 之外的模式在这里被算成绝对盒） */
+  const boxes = computed(() => layout.value.boxes)
+  const generatedHtml = computed(() => generateHtml(doc.value, activePage.value.id, {}, boxes.value))
   const generatedCss = computed(() => generateCss(doc.value))
 
   function pushToast(text: string, kind: Toast['kind'] = 'info'): void {
@@ -181,6 +194,30 @@ export const useEditorStore = defineStore('editor', () => {
     if (patches.length === 0) return
     commit(`复制 ${selectedIds.value.length} 个元素`, patches)
     selectedIds.value = newIds
+  }
+
+  /**
+   * 布局面板的入口：只改 `layout`。
+   * 切到流式排布时**保留** `layout.position` —— 流式只是暂时忽略它，切回 `free` 就还原
+   * （PLAN 的 M2 验收：容器切换布局不丢数据）。
+   */
+  function updateLayout(id: NodeId, patch: Partial<LayoutSpec>, label = '修改布局'): void {
+    const node = nodes.value[id]
+    if (!node) return
+    const layout: LayoutSpec = { ...node.layout, ...patch }
+    commit(label, [updatePatch(activePage.value.id, id, { layout: node.layout }, { layout })], `layout:${id}`)
+  }
+
+  /**
+   * 拖拽换父级：落点由 `dropParentAt` 按布局盒算，位置换算到新容器的内容框，
+   * 所以元素在屏幕上不动。详情见 `core/dnd`。
+   */
+  function reparent(ids: NodeId[], newParentId: NodeId, label = '移到容器'): void {
+    if (ids.length === 0) return
+    const patches = reparentPatches(activePage.value, boxes.value, ids, newParentId)
+    if (patches.length === 0) return
+    commit(label, patches)
+    selectedIds.value = ids.filter((id) => Boolean(nodes.value[id]))
   }
 
   /**
@@ -544,6 +581,8 @@ export const useEditorStore = defineStore('editor', () => {
     canRedo: canRedoNow,
     generatedHtml,
     generatedCss,
+    layout,
+    boxes,
     viewport,
     select,
     selectMany,
@@ -551,6 +590,8 @@ export const useEditorStore = defineStore('editor', () => {
     insertComponent,
     removeSelection,
     duplicateSelection,
+    reparent,
+    updateLayout,
     updateNode,
     updateSelection,
     moveSelection,

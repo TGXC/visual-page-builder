@@ -14,6 +14,7 @@ import LayerPanel from './LayerPanel.vue'
 import PageTabs from './PageTabs.vue'
 import PalettePanel from './PalettePanel.vue'
 import PropPanel from './PropPanel.vue'
+import LayoutPanel from './LayoutPanel.vue'
 import StatusBar from './StatusBar.vue'
 
 const store = useEditorStore()
@@ -238,6 +239,7 @@ onBeforeUnmount(() => {
 
       <aside class="editor-side editor-side--right">
         <PropPanel />
+        <LayoutPanel />
         <CodePanel />
       </aside>
     </div>

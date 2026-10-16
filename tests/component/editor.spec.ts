@@ -103,6 +103,33 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect(store.nodes[id].layout.position).toEqual({ x: 100, y: 100 })
   })
 
+  it('拖动时显示到左右邻居的间距，等距时高亮，放手后消失', async () => {
+    const left = store.insertComponent('rect', { position: { x: 100, y: 100 } })
+    const right = store.insertComponent('rect', { position: { x: 300, y: 100 } })
+    const middle = store.insertComponent('rect', { position: { x: 200, y: 100 } })
+    store.setBox(left, { x: 100, y: 100, w: 50, h: 50 }, 'init')
+    store.setBox(right, { x: 300, y: 100, w: 50, h: 50 }, 'init')
+    store.setBox(middle, { x: 200, y: 100, w: 50, h: 50 }, 'init')
+    await flush()
+
+    down(nodeEl(wrapper, middle), 220, 120)
+    move(220, 130)
+    await flush()
+
+    const hints = wrapper.findAll('.canvas-spacing')
+    expect(hints.map((hint) => hint.attributes('data-gap'))).toEqual(['50', '50'])
+    expect(hints.every((hint) => hint.classes().includes('is-equal'))).toBe(true)
+
+    // 不等距时仍然给两条提示，但不再高亮
+    move(240, 130)
+    await flush()
+    expect(wrapper.findAll('.canvas-spacing').every((hint) => !hint.classes().includes('is-equal'))).toBe(true)
+
+    up(240, 130)
+    await flush()
+    expect(wrapper.findAll('.canvas-spacing')).toHaveLength(0)
+  })
+
   it('位移不足 5px 不移动，只选中（点击与拖拽共存）', async () => {
     const id = store.insertComponent('text', { position: { x: 100, y: 100 } })
     await flush()
@@ -113,6 +140,87 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect(store.nodes[id].layout.position).toEqual({ x: 100, y: 100 })
     expect(store.selectedIds).toEqual([id])
     expect(wrapper.findAll('.layer-row').length).toBe(rows)
+  })
+
+  it('拖到别的容器里会换父级，位置换算到新容器的内容框（画布上不动）', async () => {
+    const frameId = store.insertComponent('frame', { position: { x: 100, y: 100 } })
+    store.setSize(frameId, 300, 300, 'init')
+    const textId = store.insertComponent('text', { position: { x: 600, y: 600 } })
+    await flush()
+
+    drag(nodeEl(wrapper, textId), [620, 620], [250, 250])
+
+    expect(store.nodes[textId].parentId).toBe(frameId)
+    // 内容框原点 = 容器盒 + padding(0)；位置换算成相对坐标，屏幕上仍然是拖到的位置
+    const box = store.boxes[textId]
+    expect(box.x).toBe(230)
+    expect(store.nodes[textId].layout.position).toEqual({ x: box.x - 100, y: box.y - 100 })
+    keydown('z', { ctrlKey: true })
+    expect(store.nodes[textId].parentId).toBe(store.rootId)
+  })
+
+  it('拖进另一个容器时显示落点高亮与插入位指示线', async () => {
+    const frameId = store.insertComponent('frame', { position: { x: 100, y: 100 } })
+    store.setSize(frameId, 300, 300, 'init')
+    const textId = store.insertComponent('text', { position: { x: 600, y: 600 } })
+    await flush()
+
+    down(nodeEl(wrapper, textId), 620, 620)
+    move(300, 300)
+    await flush()
+    expect(wrapper.find('.canvas-drop-hint').exists()).toBe(true)
+    expect(wrapper.find('.canvas-insert-line').exists()).toBe(true)
+    up(300, 300)
+    await flush()
+    expect(wrapper.find('.canvas-drop-hint').exists()).toBe(false)
+  })
+
+  it('布局面板：容器切到流式排布再切回自由，位置数据不丢（元素回到原处）', async () => {
+    const frameId = store.insertComponent('frame', { position: { x: 100, y: 100 } })
+    store.setSize(frameId, 300, 300, 'init')
+    const textId = store.insertComponent('text', { parentId: frameId, position: { x: 40, y: 60 } })
+    await flush()
+    const before = store.boxes[textId]
+
+    store.select(frameId)
+    await flush()
+    expect(wrapper.find('[data-role="layout-panel"]').exists()).toBe(true)
+
+    await wrapper.find('[data-role="layout-mode-vertical"]').trigger('click')
+    expect(store.nodes[frameId].layout.mode).toBe('vertical')
+    // 流式排布下位置由布局算：文本被摆到内容框顶部，坐标数据本身没被改
+    expect(store.nodes[textId].layout.position).toEqual({ x: 40, y: 60 })
+    expect(store.boxes[textId].y).not.toBe(before.y)
+
+    await wrapper.find('[data-role="layout-mode-free"]').trigger('click')
+    expect(store.nodes[frameId].layout.mode).toBe('free')
+    // 切回自由：位置没被动过，元素回到原来的地方
+    expect(store.nodes[textId].layout.position).toEqual({ x: 40, y: 60 })
+    expect(store.boxes[textId]).toEqual(before)
+  })
+
+  it('布局面板：间距/内边距/对齐/尺寸模式写进节点，且不抹掉别的字段', async () => {
+    const id = store.insertComponent('rect', { position: { x: 10, y: 10 } })
+    store.select(id)
+    await flush()
+
+    await wrapper.find('[data-role="layout-align-center"]').trigger('click')
+    await wrapper.find('[data-role="layout-size-h-hug"]').trigger('click')
+    const gap = wrapper.find('[data-role="layout-gap"]')
+    ;(gap.element as HTMLInputElement).value = '12'
+    await gap.trigger('change')
+    const padTop = wrapper.find('[data-role="layout-padding-top"]')
+    ;(padTop.element as HTMLInputElement).value = '8'
+    await padTop.trigger('change')
+
+    const layout = store.nodes[id].layout
+    expect(layout.align).toBe('center')
+    expect(layout.size.h.kind).toBe('hug')
+    expect(layout.gap).toBe(12)
+    expect(layout.padding).toEqual({ top: 8, right: 0, bottom: 0, left: 0 })
+    expect(layout.position).toEqual({ x: 10, y: 10 })
+    // 没选中的元素不该被改到
+    expect(store.nodes[store.rootId].layout.mode).toBe('free')
   })
 
   it('选中单个元素显示 8 个手柄，拖 se 手柄放大', async () => {

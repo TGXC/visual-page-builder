@@ -479,6 +479,74 @@ button {
   pointer-events: none;
 }
 
+.canvas-drop-hint {
+  position: absolute;
+  border: 1px dashed var(--studio-primary, #2563eb);
+  background: rgb(37 99 235 / 6%);
+  pointer-events: none;
+}
+
+.canvas-insert-line {
+  position: absolute;
+  background: var(--studio-primary, #2563eb);
+  pointer-events: none;
+}
+
+.canvas-insert-line--x {
+  width: 2px;
+}
+
+.canvas-insert-line--y {
+  height: 2px;
+}
+
+/* ---------- 拖动时的等距提示 ---------- */
+.canvas-spacing {
+  position: absolute;
+  z-index: 15;
+  background: var(--studio-primary, #2563eb);
+  pointer-events: none;
+}
+
+.canvas-spacing--x {
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.canvas-spacing--y {
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+/* 两侧间距相等（等距）时换色高亮，跟磁吸参考线区分开 */
+.canvas-spacing.is-equal {
+  background: #f43f5e;
+}
+
+.canvas-spacing__label {
+  position: absolute;
+  padding: 0 3px;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 14px;
+  color: #fff;
+  white-space: nowrap;
+  background: inherit;
+  border-radius: 3px;
+}
+
+.canvas-spacing--x .canvas-spacing__label {
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.canvas-spacing--y .canvas-spacing__label {
+  top: 50%;
+  left: 2px;
+  transform: translateY(-50%);
+}
+
 .canvas-text-editor {
   position: absolute;
   z-index: 20;
@@ -726,4 +794,44 @@ button {
 
 .toast--error {
   background: var(--studio-danger, #dc2626);
+}
+
+/* ---------- 布局面板 ---------- */
+
+.prop-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.prop-button {
+  height: 24px;
+  padding: 0 8px;
+  background: var(--studio-surface, #fff);
+  border: 1px solid var(--studio-border, #e2e8f0);
+  border-radius: var(--studio-radius-sm, 6px);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.prop-button.is-active {
+  background: var(--studio-primary-weak, #dbeafe);
+  border-color: var(--studio-primary, #2563eb);
+  color: var(--studio-primary, #2563eb);
+}
+
+.prop-row--grid {
+  grid-template-columns: 84px repeat(4, minmax(0, 1fr));
+}
+
+.prop-input--mini {
+  padding: 0 4px;
+}
+
+.prop-hint {
+  margin: 6px 0 0;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 11px;
+  line-height: 1.5;
 }

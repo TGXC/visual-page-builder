@@ -9,6 +9,9 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Box, NodeId, SceneNode } from '@/core/schema/types'
 import type { Handle, SnapGuide } from '@/core/geometry'
 import { applySnap, rectOf, rectsIntersect, resizeBox } from '@/core/geometry'
+import { dropParentAt } from '@/core/dnd'
+import type { SpacingHint } from '@/core/spacing'
+import { spacingHints } from '@/core/spacing'
 import { isDescendantOf } from '@/core/tree'
 import { useEditorStore } from '@/stores/editor'
 import ElementView from './ElementView.vue'
@@ -22,6 +25,9 @@ const editingValue = ref('')
 const editingSub = ref('')
 const marquee = ref<Box | null>(null)
 const guides = ref<SnapGuide[]>([])
+const dropTarget = ref<NodeId | null>(null)
+/** 拖动中的等距提示（core/spacing 算出来的纯数据，这里只负责画） */
+const spacings = ref<SpacingHint[]>([])
 
 const DRAG_THRESHOLD = 5
 const EDGE = 8
@@ -74,28 +80,45 @@ function topLevelSelection(): NodeId[] {
   )
 }
 
-/** 指针落在哪个容器里（取最深的可容纳容器），拖入分组时用 */
-function containerAt(point: { x: number; y: number }): NodeId {
-  let best = store.rootId
-  let bestDepth = -1
-  for (const node of Object.values(store.nodes)) {
-    if (node.type !== 'group' && node.type !== 'frame') continue
-    if (node.id === store.rootId) continue
-    const box = rectOf(node)
-    if (point.x < box.x || point.x > box.x + box.w || point.y < box.y || point.y > box.y + box.h) continue
-    let depth = 0
-    let cursor: NodeId | null = node.parentId
-    while (cursor) {
-      depth += 1
-      cursor = store.nodes[cursor]?.parentId ?? null
-    }
-    if (depth > bestDepth) {
-      bestDepth = depth
-      best = node.id
-    }
-  }
-  return best
+/** 指针落在哪个容器里（取最深的那层，排除被拖动的节点及其子孙），拖入分组/换父级都用它 */
+function containerAt(point: { x: number; y: number }, exclude: NodeId[] = []): NodeId | null {
+  return dropParentAt({
+    nodes: store.nodes,
+    boxes: store.boxes,
+    rootId: store.rootId,
+    point,
+    exclude,
+  })
 }
+
+/**
+ * 拖到别的容器上时的插入位指示线：新节点会追加到该容器现有子节点的末尾，
+ * 所以线画在「最后一个子节点的外侧 + gap」（flow 布局按主轴方向）。
+ */
+const dropHint = computed(() => {
+  const id = dropTarget.value
+  if (!id) return null
+  const box = store.boxes[id]
+  const layout = store.nodes[id]?.layout
+  if (!box || !layout) return null
+  const padding = layout.padding
+  const axis: 'x' | 'y' = layout.mode === 'horizontal' ? 'x' : 'y'
+  const moving = interaction ? interaction.ids : []
+  const originX = box.x + padding.left
+  const originY = box.y + padding.top
+  let at = axis === 'x' ? originX : originY
+  for (const node of Object.values(store.nodes)) {
+    if (node.parentId !== id || node.meta.hidden || moving.includes(node.id)) continue
+    const child = store.boxes[node.id]
+    if (!child) continue
+    at = Math.max(at, axis === 'x' ? child.x + child.w : child.y + child.h)
+  }
+  if (at > (axis === 'x' ? originX : originY)) at += layout.gap
+  const start = axis === 'x' ? originY : originX
+  const length =
+    axis === 'x' ? Math.max(0, box.h - padding.top - padding.bottom) : Math.max(0, box.w - padding.left - padding.right)
+  return { axis, at, start, length, box }
+})
 
 function beginMove(event: PointerEvent, node: SceneNode): void {
   const ids = store.selectedIds.includes(node.id) ? topLevelSelection() : [node.id]
@@ -216,6 +239,8 @@ function cancelDrag(): void {
   interaction = null
   marquee.value = null
   guides.value = []
+  dropTarget.value = null
+  spacings.value = []
   detach()
 }
 
@@ -263,6 +288,10 @@ function onStagePointerMove(event: PointerEvent): void {
   }
   const snapped = applySnap(candidate, snapTargets(interaction.ids))
   guides.value = snapped.guides
+  // 落点容器和当前父级不同才算「换父级」：拖到自己容器里仍然是普通移动
+  const container = containerAt(point, interaction.ids)
+  const sameParent = interaction.ids.every((id) => (store.nodes[id]?.parentId ?? store.rootId) === container)
+  dropTarget.value = container && !sameParent ? container : null
   const shiftX = snapped.box.x - interaction.startBox.x
   const shiftY = snapped.box.y - interaction.startBox.y
   for (const id of interaction.ids) {
@@ -270,6 +299,13 @@ function onStagePointerMove(event: PointerEvent): void {
     if (!start) continue
     store.setBox(id, { x: start.x + shiftX, y: start.y + shiftY, w: start.w, h: start.h }, '移动元素', 'move')
   }
+  // 等距提示：必须在 setBox 之后算，才拿到移动后的盒子
+  spacings.value = spacingHints({
+    nodes: store.nodes,
+    boxes: store.boxes,
+    rootId: store.rootId,
+    ids: interaction.ids,
+  })
 }
 
 function onStagePointerUp(event: PointerEvent): void {
@@ -283,10 +319,16 @@ function onStagePointerUp(event: PointerEvent): void {
     if (hit.length > 0) store.selectMany(hit)
   }
   const wasActive = interaction.active
+  const dragging = interaction.mode === 'move' ? [...interaction.ids] : []
+  const target = dropTarget.value
   interaction = null
   marquee.value = null
   guides.value = []
+  dropTarget.value = null
+  spacings.value = []
   detach()
+  // 换父级：位置由 core/dnd 按布局盒换算到新容器的内容框，元素在屏幕上不动
+  if (wasActive && target) store.reparent(dragging, target)
   if (wasActive) store.pushToast('已更新', 'info')
   void event
 }
@@ -294,7 +336,7 @@ function onStagePointerUp(event: PointerEvent): void {
 function onDrop(event: DragEvent): void {
   const type = event.dataTransfer?.getData('text/plain') || 'text'
   const point = localPoint(event.clientX, event.clientY)
-  const parentId = containerAt(point)
+  const parentId = containerAt(point) ?? store.rootId
   store.insertComponent(type as SceneNode['type'], { parentId, position: { x: point.x, y: point.y } })
 }
 
@@ -368,6 +410,42 @@ onBeforeUnmount(() => {
           class="canvas-marquee"
           :style="{ left: `${marquee.x}px`, top: `${marquee.y}px`, width: `${marquee.w}px`, height: `${marquee.h}px` }"
         />
+
+        <div
+          v-if="dropHint"
+          class="canvas-drop-hint"
+          :style="{
+            left: `${dropHint.box.x}px`,
+            top: `${dropHint.box.y}px`,
+            width: `${dropHint.box.w}px`,
+            height: `${dropHint.box.h}px`,
+          }"
+        />
+        <span
+          v-if="dropHint"
+          class="canvas-insert-line"
+          :class="`canvas-insert-line--${dropHint.axis}`"
+          :style="
+            dropHint.axis === 'x'
+              ? { left: `${dropHint.at}px`, top: `${dropHint.start}px`, height: `${dropHint.length}px` }
+              : { top: `${dropHint.at}px`, left: `${dropHint.start}px`, width: `${dropHint.length}px` }
+          "
+        />
+
+        <span
+          v-for="(hint, index) in spacings"
+          :key="`space-${hint.axis}-${index}-${hint.from}`"
+          class="canvas-spacing"
+          :class="[`canvas-spacing--${hint.axis}`, { 'is-equal': hint.equal }]"
+          :data-gap="hint.gap"
+          :style="
+            hint.axis === 'x'
+              ? { left: `${hint.from}px`, width: `${hint.gap}px`, top: `${hint.cross}px` }
+              : { top: `${hint.from}px`, height: `${hint.gap}px`, left: `${hint.cross}px` }
+          "
+        >
+          <i class="canvas-spacing__label">{{ hint.gap }}</i>
+        </span>
 
         <div
           v-if="editingBox"

@@ -42,8 +42,10 @@ const options = computed(() =>
 )
 
 const backgroundImage = computed(() => (props.node.type === 'image' ? safeUrl(String(props.node.props.src ?? '')) : ''))
+/** 几何来自布局引擎（store.boxes），free 之外的模式也拿到绝对盒 */
+const box = computed(() => store.boxes[props.node.id])
 const style = computed(() => {
-  const css = inlineStyle(props.node, backgroundImage.value)
+  const css = inlineStyle(props.node, backgroundImage.value, box.value)
   return `${css};${props.node.type === 'divider' ? 'background:' + (props.node.style.bg || '#E2E8F0') + ';' : ''}`
 })
 const showHandles = computed(() => props.interactive !== false && selected.value && store.selectedIds.length === 1 && !props.node.meta.locked)
