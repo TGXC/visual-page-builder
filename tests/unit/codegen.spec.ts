@@ -137,11 +137,13 @@ describe('codegen：各类组件的 HTML', () => {
   })
 
   it('image 有 src 时用背景图，没有时保留占位文案', () => {
-    const withSrc = html(
-      doc([makeNode({ id: 'root', type: 'frame' }), makeNode({ id: 'img', parentId: 'root', type: 'image', props: { src: 'https://x/a.png' } })]),
-      'root',
-    )
-    expect(withSrc).toContain('background-image:url(https://x/a.png)')
+    const withSrcDoc = doc([
+      makeNode({ id: 'root', type: 'frame' }),
+      makeNode({ id: 'img', parentId: 'root', type: 'image', props: { src: 'https://x/a.png' } }),
+    ])
+    // M5 起背景图落进 `.n-img` 的 CSS 规则，而不是元素的内联样式
+    expect(generateCss(withSrcDoc, withSrcDoc.activePageId)).toContain('background-image:url(https://x/a.png)')
+    expect(html(withSrcDoc, 'root')).not.toContain('style="')
 
     const noSrc = html(doc([makeNode({ id: 'root', type: 'frame' }), makeNode({ id: 'img', parentId: 'root', type: 'image', props: { text: '🖼️' } })]), 'root')
     expect(noSrc).toContain('🖼️')

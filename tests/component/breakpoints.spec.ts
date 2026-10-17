@@ -174,7 +174,9 @@ describe('M3 响应式断点：覆盖只写在活动断点上', () => {
     expect(new Set(rowOf()).size).toBe(3) // 手机：一列三行
     expect(new Set(columnOf()).size).toBe(1)
     expect(store.generatedCss).toContain('@media (max-width: 767.98px)')
-    expect(store.generatedCss).toContain('!important')
+    // M5：类选择器靠顺序覆盖，不再用 !important
+    expect(store.generatedCss).toContain('.n-')
+    expect(store.generatedCss).not.toContain('!important')
 
     store.setBreakpoint('desktop')
     expect(store.nodes[grid].layout.columns).toBe(3)

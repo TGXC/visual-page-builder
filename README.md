@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -102,6 +102,25 @@ M1 的 15 类组件是写死在 `switch` 里的；M4 把它们（外加新增类
 
 PLAN 验收「注册第三方假组件可拖入可导出」由组件测试覆盖：`registerComponent({ type: 'my-widget', … })` → 立刻出现在面板 → `dropOn` 拖进画布 → `store.generatedHtml` 含 `<span class="widget">挂件</span>` 与 `el--my-widget`（用例结尾 `unregisterComponent` 收尾）。
 
+## M5 已经做了什么：代码生成
+
+M1 的导出是「每个元素身上一坨内联样式」。M5 把导出拆成**语义化 HTML + 独立 CSS 类**，并补上 Vue 3 SFC 与整站 zip：
+
+| # | 能力 | 实现 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 类名化 HTML（无内联样式） | `classNamesOf(node)` → `el el--<type> n-<id>`，页面是 `.page-<slug>`；`generateBodyHtml()` 不再输出 `style="` | `tests/unit/codegenClass.spec.ts`（14） |
+| 2 | 独立 CSS 样式表 | `generatePageCss()` = `BASE_CSS` + 每节点类规则 + 断点 media query；`declarations()` 与画布 `inlineStyle()` 共用，M1 的 ±1px 判据对导出仍然成立 | `codegenEdges.spec.ts`、`codegenClass.spec.ts` |
+| 3 | 断点感知导出（无 `!important`） | 媒体查询用同优先级的 `.n-<id>`，靠顺序覆盖；被取消的属性按 `RESET_DECLARATIONS` 复位 | `tests/unit/responsiveExport.spec.ts`（6） |
+| 4 | 单文件 HTML / 整站静态站点 | `generateHtml()` 把 CSS 收进一个 `<style>`（双击即开）；`buildSite()` 产出 `index.html` + `base.css` + 每页 `<slug>.html`/`<slug>.css`，顶栏「整站」下载 | `tests/unit/codegenClass.spec.ts`、`tests/smoke/export.smoke.spec.ts` |
+| 5 | Vue 3 SFC 导出 | `generateVueSfc()` → `<template>` + `<script setup lang="ts">` + `<style scoped>`，代码面板新增「Vue」页签 | `codegenClass.spec.ts`（用 `@vue/compiler-sfc` 真编译一遍） |
+| 6 | 自写 ZIP 打包 | `createZip()`（stored + CRC-32 + UTF-8 名标记 + 固定时间戳，字节可复现） | `codegenClass.spec.ts`；外部用 `Expand-Archive` 解压校验通过 |
+| 7 | SEO / 元信息 | `Doc.seo = { title, description, lang, keywords }`，`normalizeSeo()` 截断 + `lang` 正则兜底 `zh-CN`；导出 `<title>`/description/keywords/og/canonical | `codegenClass.spec.ts`、`codegenEdges.spec.ts` |
+| 8 | 快照测试 | 固定 id 的 fixture 对单文件 HTML 与 CSS 各做一次 `toMatchSnapshot()` | `tests/unit/__snapshots__/codegenClass.spec.ts.snap` |
+
+PLAN 验收「导出 HTML 无内联样式堆叠、类名可读、能被真实 Vue 项目引用；zip 解压即可打开」的对应证据：`tests/smoke/export.smoke.spec.ts` 写出真实文件并打印 `inlineStyles 0`、`mediaQueries 2`、`zipBytes 6905`；`.sandbox/out/site.zip` 用 PowerShell `Expand-Archive` 解出四个文件（.NET 顺带校验 CRC-32）；生成的 SFC 用 `@vue/compiler-sfc` 编译零错误。
+
+冒烟用例跑在 Node 里（`node:fs` / `process` / `Buffer`），所以它有独立的 `tsconfig.smoke.json`（`types: ["node"]`，`tsconfig.app.json` 用 `exclude` 把它挡在外面）——浏览器侧的代码依旧拿不到 Node 全局类型。冒烟配置单独一个 `vitest.smoke.config.ts` 也是必须的：Vitest 的 `mergeConfig` 会拼接 `include`，合并进主配置反而会把冒烟用例排除掉；另外它必须显式写 `pool: 'threads'`，Vitest 5 默认的 forks 会 `spawn EPERM`（见下面第 4 条沙箱限制）。
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -117,6 +136,7 @@ npm install
 npm run dev        # 开发服务器
 npm run test       # Vitest 全量单测 + 组件测试
 npm run test:perf  # 1000 节点布局性能（阈值：整树 < 8ms）
+npm run test:smoke # 导出冒烟：真实写出 studio.html / site.zip，供外部工具校验
 npm run coverage   # 覆盖率（阈值：语句/分支/函数/行 ≥ 90）
 npm run lint       # ESLint（含 core 分层规则）
 npm run build      # vue-tsc 严格类型检查 + 生产构建
@@ -143,6 +163,8 @@ src/
 │   ├── responsive/          # 断点继承链 / 有效节点求解 / writeOverride() 只存差异 / media query 上界
 │   ├── components/          # 40 个组件的描述符注册表（插件式，registerComponent + subscribeRegistry）
 │   ├── symbols/             # 组件定义 / 实例展开（合成 id）/ 覆盖白名单 / 循环引用检测
+│   ├── site/                # buildSite()：静态多页站点（index.html + base.css + 每页 html/css）
+│   ├── zip/                 # createZip()：自写 stored ZIP + CRC-32（不引压缩库）
 │   ├── html/                # escapeHtml / safeUrl（codegen 与组件描述符共用）
 │   └── export/              # drawPage()：PNG 近似截图
 ├── utils/textMeasure.ts     # 离屏 canvas 折行测量（碰 document，所以不在 core）
@@ -153,23 +175,25 @@ src/
 ├── styles/                  # editor.css（编辑器三栏）+ tokens.css + base.css
 └── main.ts
 tests/
-├── unit/                    # 纯逻辑单测 + fixtures/（真实 WebBuilder v1 数据夹具）
+├── unit/                    # 纯逻辑单测 + fixtures/（真实 WebBuilder v1 数据夹具）+ __snapshots__/
 ├── component/               # 组件测试（@vue/test-utils + jsdom + helpers.ts 布局垫片）
-└── perf/                    # 1000 节点布局性能（npm run test:perf，独立 config）
+├── perf/                    # 1000 节点布局性能（npm run test:perf，独立 config）
+└── smoke/                   # 导出冒烟：真实写盘 studio.html / site.zip，用外部工具校验（npm run test:smoke）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D33）
+├── decisions.md             # 架构决策记录（ADR，D1–D38）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M4）
+## 质量数据（M5）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 27 个文件 / **379 个用例全绿** |
-| 覆盖率 | 语句 97.61% · 分支 91.32% · 函数 99.25% · 行 99.73%（阈值 90） |
-| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **4.04ms**（阈值 8ms） |
-| 构建 | 69 modules；JS 194.19 kB（**gzip 68.47 kB**）；CSS 16.94 kB（gzip 3.51 kB） |
+| 测试 | 29 个文件 / **409 个用例全绿**（含 2 个导出结构快照） |
+| 覆盖率 | 语句 97.71% · 分支 91.57% · 函数 98.82% · 行 99.76%（阈值 90） |
+| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **2.84ms**（阈值 8ms；同机多轮在 2.8–4.9ms 之间波动） |
+| 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、`mediaQueries 2`、zip 6905 B，`Expand-Archive` 解压通过 |
+| 构建 | 71 modules；JS 199.38 kB（**gzip 70.03 kB**）；CSS 16.94 kB（gzip 3.51 kB） |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 
 ## 架构决策
@@ -186,6 +210,9 @@ M3 新增 D26–D30：断点覆盖只存差异（相对更宽一级算）、`Nod
 导出与预览断点解耦、media query 上界 `minWidth − 0.02` + `!important` + 复位声明、断点切换用预设视口宽度。
 M4 新增 D31–D33：组件库是描述符注册表（插件式 + 订阅通知）、实例在渲染层展开成合成 id（文档里只有 instance 节点）、
 创建组件不入撤销栈但 master 编辑走「补丁容器泛化」。
+M5 新增 D34–D38：导出改成语义化 HTML + 独立 CSS 类（画布与 CSS 共用 `declarations()`）、媒体查询不再用
+`!important`（同优先级类 + 复位声明白名单）、自写 stored ZIP 不引压缩库、SEO 是文档级字段且收敛层截断不拒绝、
+React JSX 与保真 PNG 按裁剪优先级推迟。
 
 ## 本机开发环境的三个坑（Windows + 受限沙箱）
 
@@ -193,10 +220,18 @@ M4 新增 D31–D33：组件库是描述符注册表（插件式 + 订阅通知�
 2. **Vite 的 `exec('net use')` 走管道会被沙箱拦成 `EPERM`**：跑 `dev / test / build / preview` 前先设垫片
    `NODE_OPTIONS=--require <仓库>\.sandbox\child-process-pipe-shim.cjs`（`.sandbox/` 已在 `.gitignore` 里，Linux CI 不受影响）。
 3. **`npm ci` 会删 `node_modules`**：如果 dev/preview 服务还在跑，会报「文件已被占用」并留下半残的依赖树 —— 先停服务再装。
+4. **`child_process.fork` 的管道也被沙箱拒绝**（`Error: spawn EPERM`，`errno -4048`）：`fork` 默认用管道作 stdio，而沙箱不允许开命名管道。所以 Vitest 两个配置都显式写 `pool: 'threads'`（worker_threads 不 spawn 进程）——Vitest 5 的默认 pool 是 forks，去掉这行 `npm run test:smoke` 会直接 `no tests / 1 error`。
 
 ## 已知缺口 / 未做
 
-- **M5–M8 尚未实现**：Vue/React 代码生成、自定义组件编辑态、AI 助手都在 [PLAN.md](PLAN.md) 里。M4 做完的是「组件库插件化 + 选区变组件 + 实例同步」。
+- **M6–M8 尚未实现**：AI 助手（Mock provider + 规则）、生成组件/素材、协作与发布都在 [PLAN.md](PLAN.md) 里。M5 做完的是「干净的 HTML/CSS/Vue/整站导出」。
+- **M5 的取舍与已知缺口**：
+  - **React JSX 与「PNG 保真截图」按 PLAN 的裁剪优先级推迟**（D38）：M5 交付 HTML（单文件/整站）、独立 CSS、Vue 3 SFC 三种产物；PNG 仍是 M1 的近似截图，要等 M7 的素材/位图管线。
+  - 类名依赖节点 id（`n-<id>`），从外部导入的非法 id 会被 `slugOf()` 转成 `-`，于是 `中文` 这种 id 会变成 `--`，可读性有限；没有做「语义化缩写」或 BEM 层级名（PLAN 的 BEM/原子类选项只做到「类名可读」这一层）。
+  - `BASE_CSS` 与 40 个描述符的 `toHtml` 是手写的，导出样式表不做 CSS 压缩/去重；同一份 CSS 在多页站点里每页各一份（`<slug>.css` 内容相同也不共享）。
+  - **语义标签只做到 `<button type="button">` 与带链接节点的 `<a>`**，其余都是 `<div>`：`SceneNode.type` 是盒子语义，不是文档大纲语义（要出 `<header>/<nav>/<section>` 得先加 outline 字段）。
+  - `Doc.seo` 只能在导入的 JSON 里手写，编辑器还没有 SEO 表单（M8 的计划里）。
+  - zip 只支持 stored（不压缩），且文件名冲突会直接覆盖（`buildSite()` 用页面 slug 命名）。
 - **M4 的取舍与已知缺口**：
   - 组件面板 40 类是内置的，`Doc` 里**不存**自定义组件定义（`symbols` 是文档内的组件）；跨文档复用要先做「组件库 / 素材库」（M7 计划）。
   - 没有「组件编辑态」的独立画布：改 master 目前要选中实例后由属性面板/布局面板写入，双击进组件的交互 M7 再做。
@@ -205,7 +240,7 @@ M4 新增 D31–D33：组件库是描述符注册表（插件式 + 订阅通知�
 - **M3 的取舍与已知缺口**：
   - 断点表格 `Doc.breakpoints` 里的 desktop / tablet / mobile 目前**不可增删**（只有 `minWidth` 与 `enabled` 会被尊重），设置 UI 还没做。
   - `NodeOverride.layout` 的嵌套子对象是整体替换（D27），所以窄断点改 `size.w` 会连 `size.h` 一起写进覆盖。
-  - 媒体查询只覆盖启用中的断点，且导出用 `!important` —— 用户之后想用外部样式表覆盖这些声明需要更高权重。
+  - 媒体查询只覆盖启用中的断点。M3 时导出靠 `!important` 硬压内联样式，M5 改成语义化类 + 顺序覆盖（D35），所以现在外部样式表能正常覆盖导出结果。
   - 覆盖标记只标「这个元素在当前断点有覆盖」，还没细分「哪几个属性被覆盖」。
 - **M2 的取舍与已知缺口**：
   - `estimated`（无 Canvas 时估算出的 hug 尺寸）已经在 `computeLayout()` 里标出，但**画布还没可视化**「这是估算值」。

@@ -49,7 +49,8 @@ import {
 } from '@/core/ops'
 import { AUTOSAVE_DELAY, loadDoc, saveDoc } from '@/core/persistence'
 import { childrenOf, isDescendantOf, nextOrder } from '@/core/tree'
-import { generateHtml, generateResponsiveCss } from '@/core/codegen'
+import { generateCss, generateHtml, generateVueSfc } from '@/core/codegen'
+import { buildSite, type SiteFile } from '@/core/site'
 import { computeLayout } from '@/core/layout'
 import { reparentPatches } from '@/core/dnd'
 import {
@@ -115,7 +116,7 @@ export const useEditorStore = defineStore('editor', () => {
   const breakpointId = ref('desktop')
   const clipboard = ref<SceneNode[]>([])
   const toasts = ref<Toast[]>([])
-  const codeTab = ref<'html' | 'css'>('html')
+  const codeTab = ref<'html' | 'css' | 'vue'>('html')
   let toastSeq = 0
 
   const doc = computed(() => history.value.base)
@@ -208,7 +209,13 @@ export const useEditorStore = defineStore('editor', () => {
     pages: doc.value.pages.map((page) => (page.id === activePage.value.id ? exportPage.value : page)),
   }))
   const generatedHtml = computed(() => generateHtml(exportDoc.value, activePage.value.id, {}, exportBoxes.value))
-  const generatedCss = computed(() => generateResponsiveCss(doc.value, activePage.value.id))
+  // M5：CSS 页签给出完整样式表（基础规则 + 每个节点的类规则 + 断点媒体查询）
+  const generatedCss = computed(() => generateCss(exportDoc.value, activePage.value.id, exportBoxes.value))
+  const generatedVue = computed(() => generateVueSfc(exportDoc.value, activePage.value.id, exportBoxes.value))
+  /** 整站文件清单（zip 打包用）：index.html + base.css + 每页 html/css */
+  function siteFiles(): SiteFile[] {
+    return buildSite(exportDoc.value)
+  }
 
   function pushToast(text: string, kind: Toast['kind'] = 'info'): void {
     toastSeq += 1
@@ -808,6 +815,8 @@ export const useEditorStore = defineStore('editor', () => {
     canRedo: canRedoNow,
     generatedHtml,
     generatedCss,
+    generatedVue,
+    siteFiles,
     layout,
     boxes,
     viewport,

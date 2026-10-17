@@ -16,8 +16,9 @@ export default defineConfig({
     // forks 走 child_process.fork（Windows 上是命名管道）；threads 更省内存也更快
     pool: 'threads',
     include: ['tests/**/*.spec.ts'],
-    // 性能用例单独跑（npm run test:perf），不参与常规测试，避免并行负载把计时打歪
-    exclude: ['tests/perf/**', '**/node_modules/**'],
+    // 性能用例（npm run test:perf）与导出冒烟（npm run test:smoke）单独跑：
+    // 前者怕并行负载把计时打歪，后者会往 .sandbox/out/ 写真实产物
+    exclude: ['tests/perf/**', 'tests/smoke/**', '**/node_modules/**'],
     coverage: {
       provider: 'v8',
       include: ['src/core/**/*.ts'],

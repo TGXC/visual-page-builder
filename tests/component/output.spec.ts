@@ -51,18 +51,39 @@ describe('M1 产出：代码面板、导出、模板与导入', () => {
     vi.useRealTimers()
   })
 
-  it('代码面板展示 HTML，切到 CSS 页签显示内联说明与断点覆盖', async () => {
+  it('代码面板展示 HTML，切到 CSS 页签显示完整样式表与断点媒体查询', async () => {
     const id = store.insertComponent('text', { position: { x: 20, y: 30 } })
     store.updateNode(id, { props: { text: '欢迎光临' } })
     await nextTick()
     const view = wrapper.find('[data-role="code-view"]')
     expect(view.text()).toContain('<!DOCTYPE html>')
     expect(view.text()).toContain('欢迎光临')
-    expect(view.text()).toContain('position:absolute')
+    expect(view.text()).toContain('class="el el--text')
     await wrapper.find('[data-role="tab-css"]').trigger('click')
     const css = wrapper.find('[data-role="code-view"]').text()
-    expect(css).toContain('内联')
+    // M5：CSS 页签给出完整样式表（基础规则 + 每个节点的类规则），不再只有媒体查询
+    expect(css).toContain(`.n-${id} {`)
+    expect(css).toContain('position:absolute')
     expect(css).toContain('@media (max-width: 1199.98px)')
+  })
+
+  it('代码面板新增 Vue 页签，导出 Vue 3 SFC（类名与 HTML 一致）', async () => {
+    const id = store.insertComponent('text', { position: { x: 20, y: 30 } })
+    store.updateNode(id, { props: { text: '欢迎光临' } })
+    await nextTick()
+    await wrapper.find('[data-role="tab-vue"]').trigger('click')
+    const sfc = wrapper.find('[data-role="code-view"]').text()
+    expect(sfc).toContain('<template>')
+    expect(sfc).toContain('<style scoped>')
+    expect(sfc).toContain(`class="el el--text n-${id}"`)
+    expect(sfc).toContain(`.n-${id} {`)
+  })
+
+  it('下载整站：把 zip 作为下载产物', async () => {
+    const created = stubDownload()
+    await wrapper.find('[data-role="export-site"]').trigger('click')
+    expect(created).toEqual(['application/zip'])
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
   })
 
   it('复制代码写入剪贴板', async () => {

@@ -284,4 +284,44 @@
 
 **代价**：`Patch.pageId` 现在语义是「容器 id」（页面或组件），字段名有误导性；创建组件这一步不可撤销，用户误操作只能手动还原。
 
+## D34：M5 起导出从「全内联样式」改成「语义化 HTML + 独立 CSS 类」
+
+**决定**：每个元素带 `el el--<type> n-<id>` 三个类（`classNamesOf`），几何与样式全部落进 `generatePageCss()` 产出的规则里；页面自身是 `.page-<页面id>`。`generateHtml()` 把同一份 CSS 收进单个 `<style>` 块（双击即可打开），`buildSite()` 拆成 `index.html` + `base.css` + 每页 `<slug>.html`/`<slug>.css`。画布仍然用 `inlineStyle()`，它与 CSS 规则共用同一个 `declarations()` 函数，所以画布与导出不会各写一套映射（M1 的 ±1px 判据继续成立）。
+
+**理由**：PLAN 的 M5 判据是「导出 HTML 无内联样式堆叠、类名可读、能被真实 Vue 项目引用」。内联样式无法被覆盖、体积随节点数线性膨胀，也没法交给 Vue 组件复用。
+
+**代价**：M1/M3 那批断言 `style="` 与 `!important` 的旧测试必须改写（本轮改了 7 处）；类名依赖节点 id，节点 id 一旦由外部导入产生非法字符就要走 `slugOf()` 转义。
+
+## D35：断点媒体查询不再用 `!important`
+
+**决定**：`generateResponsiveCss()` 用与基准规则**同优先级**的类选择器（`.n-<id>`），靠「媒体查询块写在基准规则之后」这一顺序覆盖；被更窄断点取消的声明（例如基础断点有 `background`、手机断点清空）按 `RESET_DECLARATIONS` 白名单显式复位（`display:block` / `background:none` / `color:inherit` …）。
+
+**理由**：M3 用 `!important` 是因为样式内联在元素上；M5 没有内联样式了，加权重反而让用户自己的样式再也覆盖不了导出结果。
+
+**代价**：`RESET_DECLARATIONS` 是手写白名单，`declarations()` 新增一个属性时必须同步补一行，否则「取消某个样式」在断点间不会生效（测试里有一条落在 `background` 上作为样例）。
+
+## D36：整站导出用自写的 stored ZIP，不引压缩库
+
+**决定**：`src/core/zip/index.ts` 自己产 ZIP（本地文件头 `0x04034b50` + 中央目录 `0x02014b50` + EOCD `0x06054b50`，stored 不压缩，通用位标记 `0x0800` 声明 UTF-8 文件名，时间/日期固定 0）；`buildSite()` 的文件清单交给它打包，编辑器「整站」按钮下载 zip。
+
+**理由**：目标是不引第三方依赖（PLAN 的依赖约束），而 stored ZIP 只需要 CRC-32 与三个固定结构的头部；时间戳固定 0 让同一文档的 zip 字节级可复现，便于测试。
+
+**代价**：不压缩，产物比 gzip 大（示例落地页 6.9KB）；只支持 stored，将来要压 deflate 得自己实现或引入依赖。
+
+## D37：SEO/元信息是文档级字段，收敛层截断而不是拒绝
+
+**决定**：`Doc.seo = { title, description, lang, keywords }`（可选）；`normalizeSeo()` 去首尾空白、标题截 120 字/描述与关键词截 300 字，`lang` 不匹配 `^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$` 时回落 `zh-CN`，四项全空则整个字段不落盘。导出时 `title` 缺省用文档名，`<html lang>` 缺省 `zh-CN`，并输出 `og:title`/`og:description`/`canonical`。
+
+**理由**：SEO 字段来自导入的 JSON，属于不可信输入；「截断 + 兜底」比「报错拒绝」更符合「导入永远能打开」的既有约定（D3）。
+
+**代价**：超长标题会被静默截断（用户看不出丢了字符）；`keywords` 只做长度限制，不做逗号切分与去重。
+
+## D38：React JSX 与「PNG 保真截图」在 M5 不做
+
+**决定**：M5 交付 HTML（单文件/整站）、独立 CSS、Vue 3 SFC 三种产物；React JSX 与保真 PNG 按 PLAN 的裁剪优先级推迟（PNG 仍是 M1 的近似截图，待 M7 素材/生成组件到位后再换真实位图渲染）。README 的「已知缺口」明确记这一条。
+
+**理由**：PLAN 把 React JSX 排在 M7 生成组件与素材之后；PNG 要保真必须先有真实浏览器渲染或位图管线，否则只是把近似算法换个名字。
+
+**代价**：M5 的产物清单比 PLAN 原文少两项；`docs/decisions.md` 与 README 必须写清楚，避免被当成漏做。
+
 

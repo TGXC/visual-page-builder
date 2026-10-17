@@ -1,0 +1,67 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`M5 代码生成：类名化 CSS，无内联样式 > 单文件 HTML 关键结构快照（M5 验收：快照测试） 1`] = `
+"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的站点</title>
+<meta property="og:title" content="我的站点">
+<link rel="canonical" href="/">
+<style>
+* { margin: 0; padding: 0; }
+body { background: #f1f5f9; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.page { position: relative; overflow: hidden; margin: 0 auto; }
+.el { position: absolute; box-sizing: border-box; overflow: hidden; }
+.el__muted { font-size: 0.9em; opacity: 0.65; }
+.el__title { font-size: 1.2em; font-weight: 600; }
+.sub { font-size: 0.8em; opacity: 0.72; margin-top: 4px; }
+label { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }
+select, input, textarea { width: 100%; height: 100%; font: inherit; color: inherit; border: none; background: transparent; }
+video { width: 100%; height: 100%; object-fit: cover; }
+.page-page_home { position:relative; width:1200px; height:800px; overflow:hidden; margin:0 auto; background:#ffffff }
+.n-text_1 { position:absolute; left:0px; top:0px; width:160px; height:100px; box-sizing:border-box; color:#111111; font-size:20px }
+.n-image_1 { position:absolute; left:0px; top:0px; width:160px; height:100px; box-sizing:border-box; background-image:url(https://a.example/p.png); background-size:cover; background-position:center }
+.n-hidden_1 { position:absolute; left:0px; top:0px; width:160px; height:100px; box-sizing:border-box; display:none }
+@media (max-width: 1199.98px) {
+  .page-page_home { width:768px; height:1024px }
+}
+@media (max-width: 767.98px) {
+  .page-page_home { width:375px; height:812px }
+}
+</style>
+</head>
+<body>
+<div class="page page-page_home" data-page="page_home" data-id="root">
+<div class="el el--text n-text_1" data-id="text_1">欢迎</div>
+<div class="el el--image n-image_1" data-id="image_1"></div>
+<div class="el el--rect n-hidden_1" data-id="hidden_1"></div>
+</div>
+</body>
+</html>
+"
+`;
+
+exports[`M5 代码生成：类名化 CSS，无内联样式 > 单文件 HTML 关键结构快照（M5 验收：快照测试） 2`] = `
+"* { margin: 0; padding: 0; }
+body { background: #f1f5f9; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.page { position: relative; overflow: hidden; margin: 0 auto; }
+.el { position: absolute; box-sizing: border-box; overflow: hidden; }
+.el__muted { font-size: 0.9em; opacity: 0.65; }
+.el__title { font-size: 1.2em; font-weight: 600; }
+.sub { font-size: 0.8em; opacity: 0.72; margin-top: 4px; }
+label { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }
+select, input, textarea { width: 100%; height: 100%; font: inherit; color: inherit; border: none; background: transparent; }
+video { width: 100%; height: 100%; object-fit: cover; }
+.page-page_home { position:relative; width:1200px; height:800px; overflow:hidden; margin:0 auto; background:#ffffff }
+.n-text_1 { position:absolute; left:0px; top:0px; width:160px; height:100px; box-sizing:border-box; color:#111111; font-size:20px }
+.n-image_1 { position:absolute; left:0px; top:0px; width:160px; height:100px; box-sizing:border-box; background-image:url(https://a.example/p.png); background-size:cover; background-position:center }
+.n-hidden_1 { position:absolute; left:0px; top:0px; width:160px; height:100px; box-sizing:border-box; display:none }
+@media (max-width: 1199.98px) {
+  .page-page_home { width:768px; height:1024px }
+}
+@media (max-width: 767.98px) {
+  .page-page_home { width:375px; height:812px }
+}"
+`;

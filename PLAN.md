@@ -137,6 +137,8 @@ npm run build
 
 **验收**：快照测试（HTML/CSS/SFC 关键结构）+ 手动打开导出站点。判据：导出 HTML 无内联样式堆叠、类名可读、能被真实 Vue 项目引用；zip 解压即可打开。
 
+**实现偏离（已完成）**：导出结构定为 `el el--<类型> n-<节点id>` 三件套类名 + 页面 `.page-<页面id>` 规则，几何与样式全部进 `generatePageCss()`（D34）；断点媒体查询**去掉了 `!important`**，改成同优先级类选择器靠顺序覆盖 + `RESET_DECLARATIONS` 显式复位（D35）；整站打包用自写的 stored ZIP（`core/zip`，CRC-32 + UTF-8 名标记 + 固定时间戳，D36）；SEO 落成可选的文档级字段 `Doc.seo`，由 `normalizeSeo()` 截断兜底（D37）。**未做（按 PLAN 的裁剪优先级推迟，D38）**：React JSX 导出；「PNG 保真截图」——M5 的 PNG 仍是 M1 的 `drawPage()` 近似绘制，要等 M7 的素材/位图管线。另：BEM/原子类只做到「类名可读」这一层，没有做语义化缩写或类名去重；**「语义标签」只落到 `<button type="button">` 与被设了链接的节点外那层 `<a>`**（`src/core/codegen/index.ts:274` 写死这两条），其余节点仍是 `<div>`——`SceneNode.type` 是盒子语义（frame / section / container…）而不是文档大纲语义，要真出 `<header>/<nav>/<section>/<h1>` 得先给描述符或文档加一层 outline 字段，M5 不做；`Doc.seo` 只能从导入的 JSON 手写，编辑器还没有 SEO 表单。
+
 ### M6 AI 基础（Mock + 规则助手）
 
 **任务**：`ai/AiProvider`（Mock 必备，OpenAI 兼容端点可选）、`core/assistant` 规则式设计检查（溢出/对比度/间距/尺寸一致/alt/断点未覆盖）与一键修复、一句话生成页面（`PageDraft` + 三重校验）、选区指令编辑（产出 `Patch[]`，只影响选中子树）、AI 操作前自动快照 + 历史标签。

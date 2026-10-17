@@ -15,5 +15,8 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "tests/**/*.ts"],
+  /* 冒烟测试要碰 node:fs / process，走单独的 tsconfig.smoke.json（types: ["node"]），
+     免得把 Node 全局类型漏进浏览器侧的类型检查 */
+  "exclude": ["tests/smoke/**"]
 }

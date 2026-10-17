@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { exportFileName } from '@/core/codegen'
 import { drawPage } from '@/core/export'
+import { createZip } from '@/core/zip'
 import { useEditorStore } from '@/stores/editor'
 import CanvasStage from '@/components/canvas/CanvasStage.vue'
 import CodePanel from './CodePanel.vue'
@@ -150,6 +151,24 @@ function onExportPng(): void {
   store.pushToast('已导出 PNG 截图')
 }
 
+function onExportSite(): void {
+  const files = store.siteFiles()
+  if (files.length === 0) {
+    store.pushToast('这一页没有内容', 'error')
+    return
+  }
+  const zip = createZip(files)
+  const blob = new Blob([zip], { type: 'application/zip' })
+  if (typeof URL.createObjectURL !== 'function') return
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = exportFileName(store.doc, 'zip')
+  anchor.click()
+  URL.revokeObjectURL(url)
+  store.pushToast(`已导出整站（${files.length} 个文件）`)
+}
+
 async function onFileChange(event: Event): Promise<void> {  const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
@@ -221,6 +240,7 @@ onBeforeUnmount(() => {
         <button type="button" class="editor-button" data-role="import-json" @click="fileInput?.click()">导入</button>
         <button type="button" class="editor-button" data-role="export-json" @click="onExportJson">导出</button>
         <button type="button" class="editor-button" data-role="export-png" @click="onExportPng">PNG</button>
+        <button type="button" class="editor-button" data-role="export-site" @click="onExportSite">整站</button>
         <input ref="fileInput" class="editor-bar__file" type="file" accept="application/json,.json" data-role="import-file" @change="onFileChange">
       </div>
     </header>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 代码面板：HTML / CSS 页签、复制、下载 .html、新窗口预览 */
+/** 代码面板：HTML / CSS / Vue 页签、复制、下载 .html、新窗口预览 */
 import { computed, ref } from 'vue'
 import { exportFileName } from '@/core/codegen'
 import { useEditorStore } from '@/stores/editor'
@@ -7,17 +7,15 @@ import { useEditorStore } from '@/stores/editor'
 const store = useEditorStore()
 const toast = ref('')
 
-/** CSS 页签：基础样式以内联方式落在每个元素上，这里只列断点覆盖（media query） */
-const CSS_NOTE = '/* 基础样式以内联方式输出在每个元素上，这里只列出断点覆盖 */'
-
+/** 三个页签分别是：单文件 HTML、独立样式表（M5 起是完整 CSS，不是只有媒体查询）、Vue 3 SFC */
 const code = computed(() => {
-  if (store.codeTab !== 'css') return store.generatedHtml
-  const responsive = store.generatedCss
-  return responsive ? `${CSS_NOTE}\n\n${responsive}` : CSS_NOTE
+  if (store.codeTab === 'css') return store.generatedCss
+  if (store.codeTab === 'vue') return store.generatedVue
+  return store.generatedHtml
 })
 const title = computed(() => store.activePage?.name ?? '页面')
 
-function setTab(tab: 'html' | 'css'): void {
+function setTab(tab: 'html' | 'css' | 'vue'): void {
   store.codeTab = tab
 }
 
@@ -79,6 +77,15 @@ function openPreview(): void {
         @click="setTab('css')"
       >
         CSS
+      </button>
+      <button
+        type="button"
+        class="code-tab"
+        :class="{ 'code-tab--active': store.codeTab === 'vue' }"
+        data-role="tab-vue"
+        @click="setTab('vue')"
+      >
+        Vue
       </button>
       <span class="code-tabs__spacer" />
       <button type="button" class="icon-button" data-role="copy-code" title="复制代码" @click="copy">⧉</button>

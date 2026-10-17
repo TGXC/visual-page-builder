@@ -47,12 +47,20 @@ function blockOf(css: string, query: string): string {
   return end < 0 ? rest : rest.slice(0, end + 2)
 }
 
-/** 从规则里抓某个属性值 */
+/** 从媒体查询块里抓某个节点类规则的属性值（M5 起用 `.n-<id>` 类选择器，不再是 `[data-id]`） */
 function declOf(block: string, id: string, prop: string): string {
-  const rule = block.split('\n').find((line) => line.includes(`data-id="${id}"`))
+  const rule = block.split('\n').find((line) => line.includes(`.n-${id} {`))
   if (!rule) return ''
-  const match = new RegExp(`${prop}:\\s*([^;!]+)`).exec(rule)
+  const match = new RegExp(`${prop}:\\s*([^;!}]+)`).exec(rule)
   return match ? match[1].trim() : ''
+}
+
+/** 抓页面自身规则（`.page-<slug>`）的属性值 */
+function pageDeclOf(block: string, prop: string): string {
+  const match = /\.page-[^\s{]+\s*\{([^}]*)\}/.exec(block)
+  if (!match) return ''
+  const found = new RegExp(`${prop}:\\s*([^;!}]+)`).exec(match[1])
+  return found ? found[1].trim() : ''
 }
 
 describe('M3 导出：断点感知的媒体查询', () => {
@@ -62,20 +70,22 @@ describe('M3 导出：断点感知的媒体查询', () => {
     expect(css).toContain('@media (max-width: 1199.98px)')
     expect(css).toContain('@media (max-width: 767.98px)')
     const tablet = blockOf(css, '@media (max-width: 1199.98px)')
-    expect(tablet).toContain('.page[data-id="root"]')
-    expect(declOf(tablet, 'root', 'width')).toBe('768px')
+    expect(tablet).toContain('.page-page_1')
+    expect(pageDeclOf(tablet, 'width')).toBe('768px')
     const mobile = blockOf(css, '@media (max-width: 767.98px)')
-    expect(declOf(mobile, 'root', 'width')).toBe('375px')
+    expect(pageDeclOf(mobile, 'width')).toBe('375px')
   })
 
-  it('规则用 !important 压过内联样式', () => {
+  it('M5 起媒体查询用同样的类选择器靠顺序覆盖，不再需要 !important', () => {
     const { doc, pageId, childIds } = scene()
     const css = generateResponsiveCss(doc, pageId)
-    expect(css).toContain(`.el[data-id="${childIds[0]}"]`)
-    expect(css).toContain('!important')
+    expect(css).toContain(`.n-${childIds[0]}`)
+    expect(css).not.toContain('!important')
+    // 类选择器与基准规则同优先级，所以媒体查询里必须重复选择器（而不是靠加权重）
+    expect(css).toMatch(new RegExp(`\\.n-${childIds[0]} \\{`))
   })
 
-  it('桌面 3 列 → 手机 1 列：手机块里子块变宽，桌面内联样式不变（互不污染）', () => {
+  it('桌面 3 列 → 手机 1 列：手机块里子块变宽，桌面几何不变（互不污染）', () => {
     const narrow = scene()
     const wide = scene()
     narrow.doc.pages[0].nodes[narrow.containerId] = {
@@ -118,7 +128,7 @@ describe('M3 导出：断点感知的媒体查询', () => {
     doc.pages[0].nodes[childIds[1]] = { ...doc.pages[0].nodes[childIds[1]], overrides: { mobile: { hidden: true } } }
     const html = generateHtml(doc, pageId)
     expect(html).toContain('@media (max-width: 767.98px)')
-    expect(html).toContain('display:none !important')
+    expect(html).toMatch(/\.n-c1 \{[^}]*display:none/)
     expect(html).toContain('<!DOCTYPE html>')
   })
 

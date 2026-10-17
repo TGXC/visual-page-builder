@@ -191,6 +191,14 @@ export interface SymbolDef {
   overridable: readonly string[]
 }
 
+/** 站点级 SEO / 元信息（M5）：导出 HTML 的 lang / title / description / keywords */
+export interface DocSeo {
+  title: string
+  description: string
+  lang: string
+  keywords: string
+}
+
 export interface Doc {
   version: 2
   id: string
@@ -201,6 +209,8 @@ export interface Doc {
   theme: Theme
   /** 组件（master）表；缺省视为空 */
   symbols?: Record<SymbolId, SymbolDef>
+  /** SEO / 元信息；缺省时导出用文档名与 `zh-CN` */
+  seo?: DocSeo
 }
 
 export interface Box {

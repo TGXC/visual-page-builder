@@ -17,6 +17,7 @@ import type {
   ConstraintH,
   ConstraintV,
   Doc,
+  DocSeo,
   Insets,
   Justify,
   LayoutMode,
@@ -342,6 +343,27 @@ export function normalizeTheme(raw: unknown): Theme {
   return { tokens }
 }
 
+/** 语言标记：BCP-47 的宽松子集（`zh-CN` / `en` / `en-US`），非法值回落 `zh-CN` */
+const LANG_PATTERN = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/
+
+const MAX_SEO_TITLE = 120
+const MAX_SEO_TEXT = 300
+
+/**
+ * SEO / 元信息收敛：只收字符串、去首尾空白、按长度截断，语言非法就回落 `zh-CN`。
+ * 缺省（没有 `seo` 字段）时返回 `undefined`，导出侧再用文档名兜底。
+ */
+export function normalizeSeo(raw: unknown): DocSeo | undefined {
+  if (!isRecord(raw)) return undefined
+  const title = stringOr(raw.title, '').trim().slice(0, MAX_SEO_TITLE)
+  const description = stringOr(raw.description, '').trim().slice(0, MAX_SEO_TEXT)
+  const keywords = stringOr(raw.keywords, '').trim().slice(0, MAX_SEO_TEXT)
+  const rawLang = stringOr(raw.lang, '').trim()
+  const lang = LANG_PATTERN.test(rawLang) ? rawLang : 'zh-CN'
+  if (title === '' && description === '' && keywords === '' && rawLang === '') return undefined
+  return { title, description, lang, keywords }
+}
+
 export function createPage(name = '首页', viewport = DEFAULT_VIEWPORT): Page {
   const root = createId('root')
   const nodes: Record<NodeId, SceneNode> = { [root]: createRootFrame(root, viewport) }
@@ -377,6 +399,7 @@ export function normalizeDoc(raw: unknown): Doc | null {
   if (pages.length === 0) pages.push(createPage('首页'))
   const rawActive = typeof raw.activePageId === 'string' ? raw.activePageId : ''
   const activePageId = pages.some((p) => p.id === rawActive) ? rawActive : pages[0].id
+  const seo = normalizeSeo(raw.seo)
   return {
     version: 2,
     id: stringOr(raw.id, createId('doc')),
@@ -385,5 +408,6 @@ export function normalizeDoc(raw: unknown): Doc | null {
     activePageId,
     breakpoints: normalizeBreakpoints(raw.breakpoints),
     theme: normalizeTheme(raw.theme),
+    ...(seo ? { seo } : {}),
   }
 }

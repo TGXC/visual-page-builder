@@ -1,0 +1,31 @@
+{
+  /* 冒烟测试跑在 Node 里（node:fs / node:path / process / Buffer），
+     所以单独一个 project，而不是把 Node 类型塞进 tsconfig.app.json */
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.smoke.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    /* Bundler mode：和 vitest 的解析保持一致 */
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* 不写 baseUrl：TS 6 起 baseUrl 已废弃，paths 直接相对本文件解析 */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["tests/smoke/**/*.ts"]
+}
