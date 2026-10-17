@@ -669,6 +669,8 @@ textarea.editor-input {
 .canvas-page__inner {
   position: absolute;
   inset: 0;
+  /* 缩放从左上角开始：默认中心缩放会让内容相对 .canvas-page 整体偏移 */
+  transform-origin: 0 0;
 }
 
 /* 面包屑：深层容器里点选不出东西时的逃生通道 */

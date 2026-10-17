@@ -522,7 +522,15 @@ onBeforeUnmount(() => {
       :style="pageStyle"
     >
       <div class="canvas-page__grid" data-role="canvas-grid" :style="gridStyle" />
-      <div class="canvas-page__inner" :style="{ width: `${vw}px`, height: `${vh}px`, transform: `scale(${store.zoom})` }">
+      <!--
+        缩放层：必须从左上角（0 0）缩放。默认的 `50% 50%` 会以中心缩放，
+        内容相对 `.canvas-page`（宽高已经是 vw×zoom）整体偏移，表现为
+        「缩放后组件/占位文字错位、蓝虚线框与画布不重合」。
+      -->
+      <div
+        class="canvas-page__inner"
+        :style="{ width: `${vw}px`, height: `${vh}px`, transform: `scale(${store.zoom})`, transformOrigin: '0 0' }"
+      >
         <ElementView :node="root" :nodes="view" :scale="store.zoom" @edit-text="startEdit" />
 
         <div

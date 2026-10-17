@@ -234,6 +234,17 @@ npm run build
 **验收**：`tests/component/editor.spec.ts` 的缩放用例改成「显示当前百分比 → 手输非整档 37% → 清空输入不改缩放 → 越界夹到 200% / 25%」，全量 `npm test` 52 文件 / 591 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.33 kB / gzip 98.14，CSS 29.57 kB / gzip 5.72）、`test:perf` 布局 4.96ms / 导出 139.99ms（CSS 41.98 / HTML 44.83 / 整站 41.71 / ZIP 2.84ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 6905`）。**未做**：没有历史值记忆、没有输入防抖；越界值静默夹取不提示；缩放范围仍是 25%–200%，超宽设计稿没法缩到 10% 全览。
 
 
+### M16 缩放层原点修复（计划外，用户第八轮反馈）
+
+**触发**：用户第八轮反馈「当我进行缩放时，组件与画布的相对位置会改变，会错位，且『从左侧拖入组件开始搭建』字样也会偏移，蓝色虚线框与画布并不重合」，并追问「能否让画布上的组件也适配画布的尺寸变化与电脑、手机、平板间的相互适应」——后者先只给答案不改代码。
+
+**根因**：`.canvas-page__inner`（宽高恒为设计尺寸 `vw × vh`，用 `transform: scale(zoom)` 缩放）**没有写 `transform-origin`**，CSS 默认 `50% 50%`，zoom=50% 时内容以中心为轴收缩、整体偏移 `(1−zoom) × 1440 / 2 = 360px`；而外层 `.canvas-page` 的宽高已经是 `vw × zoom` 并居中，于是元素、占位文字、多选框、吸附线、框选矩形全部相对画布边界错开。`localPoint()` 用 `.canvas-page` 的 `getBoundingClientRect()` 除以 zoom 换算坐标，同样依赖「缩放原点 = 容器左上角」。
+
+**做了什么**：`CanvasStage.vue` 的缩放层加内联 `transformOrigin: '0 0'`（并写注释说明为什么不能吃默认的中心原点），`editor.css` 的 `.canvas-page__inner` 再补一条 `transform-origin: 0 0`；`tests/component/editor.spec.ts` 新增 1 例：断言 `transformOrigin === '0 0'`、缩到 75% 时 `.canvas-page` 宽 1080px、缩放层仍是 1440×900（D74）。
+
+**验收**：`npm test` 52 文件 / 592 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.35 kB / gzip 98.15，CSS 29.60 kB / gzip 5.73）、`test:perf` 布局 4.25ms / 导出 116.54ms（CSS 35.47 / HTML 39.23 / 整站 37.83 / ZIP 5.58ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 6905`）。**未做**：设备间自适应仍未实现（现状只有手动断点覆盖；候选路线 A 整页等比 fit / B 切断点自动生成覆盖 / C 容器流式布局，尚未选型）；正确性依赖「外层尺寸 = 设计尺寸 × zoom」与「原点在左上角」两个约定；`transform-origin` 写在内联与 CSS 两处；jsdom 无布局，测试只能断言内联样式，真实像素对齐靠浏览器目测。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

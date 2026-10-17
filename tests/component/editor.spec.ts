@@ -482,6 +482,22 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect((input.element as HTMLInputElement).value).toBe('25')
   })
 
+  it('缩放层以左上角为原点，画布尺寸与缩放层尺寸对得上（内容不会相对画布偏移）', async () => {
+    const inner = wrapper.find('.canvas-page__inner')
+    expect(inner.exists()).toBe(true)
+    // 默认 transform-origin 是 50% 50%，会让内容相对 .canvas-page 整体偏移（用户实测的错位）
+    expect((inner.element as HTMLElement).style.transformOrigin).toBe('0 0')
+
+    await wrapper.find('[data-role="zoom-out"]').trigger('click')
+    expect(store.zoom).toBe(0.75)
+    expect((inner.element as HTMLElement).style.transform).toBe('scale(0.75)')
+    expect((inner.element as HTMLElement).style.transformOrigin).toBe('0 0')
+    // 外层画布按 zoom 收缩，缩放层保持设计尺寸（1440×900），靠 transform 缩放
+    expect(wrapper.find('.canvas-page').attributes('style')).toContain('width: 1080px')
+    expect((inner.element as HTMLElement).style.width).toBe('1440px')
+    expect((inner.element as HTMLElement).style.height).toBe('900px')
+  })
+
   it('一键清空：空页面置灰，有元素后点一下清空整页，撤销能整页恢复', async () => {
     const clearButton = wrapper.find('[data-role="toolbar-clear"]')
     expect(clearButton.attributes('disabled')).toBeDefined()
