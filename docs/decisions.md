@@ -572,4 +572,28 @@
 
 **代价**：中文名只影响显示，样式引用 / 导出 / `themeVariablesCss()` 仍是英文；自定义 token（如 `brand`）认不出后缀，显示成「其他·brand」；store 的动作名与 toast 仍是「主题 token：xxx」（测试按这个断言，没跟着改）。
 
+## D70：视口尺寸显示成「宽 × 高」，预设按钮两行、宽高各自可改
+
+**决定**：`VIEWPORTS` 的 `label` 只留预设名（桌面 / 平板 / 手机），尺寸由 `viewport().w/h` 派生；顶栏尺寸组改成「三个两行按钮（名字 + `1440 × 900`）+ 宽输入 × 高输入 + `1440 × 900` 文本」，`[data-role="viewport-label"]` 显示 `${w} × ${h}`；新增 `store.setViewportHeight()`（与 `setViewportWidth()` 一样夹取 200–10000 后复用 `applyViewport()`），`data-role="viewport-height"` 改动后面板与画布同步。
+
+**理由**：用户 m10790 反馈「尺寸选择应是类似于 1440*900 之类的展示形式」。原来顶栏只有一个宽度输入框和「桌面 1440」——高度既看不见也改不了，而 `Page.viewport` 是宽高成对的（导出 body、画布纸张都用它）。
+
+**代价**：`viewport().label` 不再带尺寸（老测试里「label 含 375」的断言改成断言 `${w} × ${h}`）；按钮变两行后顶栏高 52 → 56px，窄窗口下尺寸组会换行；「自定义 1024」这种旧 label 没有了，改成显示完整宽高。
+
+## D71：一键清空当前页面元素，走一次文档补丁提交
+
+**决定**：store 新增 `canClearPage`（`topLevel.length > 0`）与 `clearPage()`：取根容器的全部直接子节点 → `removePatches()` 级联删整棵子树 → `commit('清空页面（N 个元素）', patches)` → 清空选区 → toast 提示可按 Ctrl+Z 撤销。顶栏加 `data-role="toolbar-clear"`（无元素时禁用），不做二次确认。
+
+**理由**：用户 m10825 追加「加上一键清除功能」。删除**整页所有元素**用逐个选删太慢；因为清空是一条可撤销的历史记录，误点的代价是 Ctrl+Z，所以不需要确认弹窗（也避免在 jsdom/无 `window.confirm` 的环境里多一条分支）。
+
+**代价**：只清当前页面，不是「清空整个项目」（新建项目仍走 `newProject()`）；清空后页面背景/尺寸/主题仍在，想连页面一起重置要用「新建」；`removePatches()` 的每元素一条补丁都进了同一个条目，节点多时历史条目体积偏大。
+
+## D72：画布内容盒改 `border-box`，单行控件垂直居中，补齐画布内容类样式
+
+**决定**：`.canvas-el__content` 改 `display:flex; flex-direction:column; box-sizing:border-box`（保留 8px 内边距）；按 `data-type` 把单行控件（button / badge / label / link / input / select / date / number / file / switch / alert / tabs / nav / audio / slider）的内容盒改成横向 + `align-items:center`，图标 / 头像 / 视频居中，复选 / 单选横排换行；补齐 `.canvas-el__title` / `__muted` / `__sub` / `__frame-hint` / `__caret` / `__choice` / `__box` / `__dot` / `__switch` / `__play` 的规则（此前画布 CSS 里完全没有），以及画布里复用导出 HTML 的 `.el__list` / `.el__table` / `.el__tabs` 基础排版。
+
+**理由**：用户 m10825 反馈「部分组件内的文字或提示字体与上下边框的距离并不一致」。两个真因：①内容盒没写 `box-sizing`，`height:100%` + 8px 上下 padding 在 content-box 下多出 16px 被 `overflow:hidden` 裁掉——上边距 8px、下边距变成 0；②画布里的标题 / 弱化文字 / 副标题 / 下拉箭头 / 复选方框 / 开关 / 播放图标等 `canvas-el__*` 类**没有任何 CSS**（导出侧有 `.el__title` / `.el__muted` / `.sub` 规则），于是副标题和正文同字号、提示文字不变灰、下拉箭头紧贴文字，看起来「间距不齐」。
+
+**代价**：画布的内容盒是「编辑期排版」，与导出 HTML 的盒模型仍不是一套（导出侧没有这层 padding / flex，节点 `layout.padding` 也不参与导出）；`.el__list` / `.el__table` / `.el__tabs` 只在画布侧补了样式，导出侧仍是浏览器默认样式；新增的居中规则按 `data-type` 白名单维护，以后注册新组件类型时要记得加进名单。
+
 

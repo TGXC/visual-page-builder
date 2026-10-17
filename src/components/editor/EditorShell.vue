@@ -7,7 +7,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { exportFileName } from '@/core/codegen'
 import { drawPage } from '@/core/export'
 import { createZip } from '@/core/zip'
-import { useEditorStore } from '@/stores/editor'
+import { VIEWPORTS, useEditorStore } from '@/stores/editor'
 import CanvasStage from '@/components/canvas/CanvasStage.vue'
 import AiPanel from './AiPanel.vue'
 import CodePanel from './CodePanel.vue'
@@ -40,7 +40,23 @@ const sideTabs: { id: SideTab; label: string }[] = [
 ]
 const sideTab = ref<SideTab>('props')
 
-const viewportLabel = computed(() => store.viewport().label)
+const viewportLabel = computed(() => {
+  const { w, h } = store.viewport()
+  return `${w} × ${h}`
+})
+/** 三个预设用「名字 + 1440 × 900」两行展示：只说「桌面 1440」看不出高度 */
+const viewportPresets = computed(() =>
+  (['desktop', 'tablet', 'mobile'] as const).map((id) => ({ id, ...VIEWPORTS[id] })),
+)
+
+/** 缩放下拉的候选值。用 `适应` 算出来的非整档比例（如 113%）也要能显示出来 */
+const ZOOM_OPTIONS = [25, 50, 75, 100, 125, 150, 175, 200]
+const zoomPercent = computed(() => Math.round(store.zoom * 100))
+const zoomOptions = computed(() => {
+  const list = [...ZOOM_OPTIONS]
+  if (!list.includes(zoomPercent.value)) list.push(zoomPercent.value)
+  return list.sort((a, b) => a - b)
+})
 
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null
@@ -142,6 +158,18 @@ function onViewportWidth(event: Event): void {
   input.value = String(store.viewport().w)
 }
 
+function onViewportHeight(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const raw = input.value.trim()
+  if (raw !== '') store.setViewportHeight(Number(raw))
+  input.value = String(store.viewport().h)
+}
+
+function onZoomSelect(event: Event): void {
+  const select = event.target as HTMLSelectElement
+  store.setZoom(Number(select.value) / 100)
+}
+
 function onExportJson(): void {
   const blob = new Blob([JSON.stringify(store.doc, null, 2)], { type: 'application/json' })
   if (typeof URL.createObjectURL !== 'function') return
@@ -240,17 +268,19 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div class="editor-bar__group">
+      <div class="editor-bar__group editor-bar__group--viewport">
         <button
-          v-for="id in ['desktop', 'tablet', 'mobile']"
-          :key="id"
+          v-for="preset in viewportPresets"
+          :key="preset.id"
           type="button"
-          class="editor-button"
-          :class="{ 'editor-button--active': store.breakpointId === id }"
-          :data-role="`viewport-${id}`"
-          @click="store.setBreakpoint(id)"
+          class="editor-button editor-button--preset"
+          :class="{ 'editor-button--active': store.breakpointId === preset.id }"
+          :data-role="`viewport-${preset.id}`"
+          :title="`${preset.label}：${preset.w} × ${preset.h}`"
+          @click="store.setBreakpoint(preset.id)"
         >
-          {{ id === 'desktop' ? '桌面' : id === 'tablet' ? '平板' : '手机' }}
+          <span class="editor-button__label">{{ preset.label }}</span>
+          <span class="editor-button__meta">{{ preset.w }} × {{ preset.h }}</span>
         </button>
         <input
           class="editor-input editor-input--width"
@@ -259,20 +289,67 @@ onBeforeUnmount(() => {
           max="10000"
           step="1"
           data-role="viewport-width"
+          title="页面宽度（200–10000）"
           :value="store.viewport().w"
           @change="onViewportWidth"
+        >
+        <span class="editor-bar__times">×</span>
+        <input
+          class="editor-input editor-input--width"
+          type="number"
+          min="200"
+          max="10000"
+          step="1"
+          data-role="viewport-height"
+          title="页面高度（200–10000）"
+          :value="store.viewport().h"
+          @change="onViewportHeight"
         >
         <span class="editor-bar__viewport" data-role="viewport-label">{{ viewportLabel }}</span>
       </div>
 
       <div class="editor-bar__group">
-        <button type="button" class="editor-button" data-role="zoom-out" @click="store.zoomBy(-0.25)">－</button>
-        <button type="button" class="editor-button" data-role="zoom-reset" @click="store.setZoom(1)">100%</button>
-        <button type="button" class="editor-button" data-role="zoom-in" @click="store.zoomBy(0.25)">＋</button>
-        <button type="button" class="editor-button" data-role="zoom-fit" @click="store.fitZoom(stageWidth)">适应</button>
+        <button
+          type="button"
+          class="editor-button"
+          data-role="zoom-out"
+          title="缩小 25%（范围 25%–200%）"
+          @click="store.zoomBy(-0.25)"
+        >
+          －
+        </button>
+        <select
+          class="editor-input editor-input--zoom"
+          data-role="zoom-select"
+          title="画布缩放 25%–200%，每次 25%"
+          :value="String(zoomPercent)"
+          @change="onZoomSelect"
+        >
+          <option v-for="percent in zoomOptions" :key="percent" :value="String(percent)">{{ percent }}%</option>
+        </select>
+        <button
+          type="button"
+          class="editor-button"
+          data-role="zoom-in"
+          title="放大 25%（范围 25%–200%）"
+          @click="store.zoomBy(0.25)"
+        >
+          ＋
+        </button>
+        <button type="button" class="editor-button" data-role="zoom-fit" title="缩放到适合窗口宽度" @click="store.fitZoom(stageWidth)">适应</button>
       </div>
 
       <div class="editor-bar__group editor-bar__group--right">
+        <button
+          type="button"
+          class="editor-button"
+          data-role="toolbar-clear"
+          :disabled="!store.canClearPage"
+          title="清空当前页面的全部元素（可撤销 Ctrl+Z）"
+          @click="store.clearPage()"
+        >
+          清空
+        </button>
         <button type="button" class="editor-button" data-role="new-project" @click="store.newProject()">新建</button>
         <button type="button" class="editor-button" data-role="import-json" @click="fileInput?.click()">导入</button>
         <button type="button" class="editor-button" data-role="export-json" @click="onExportJson">导出</button>

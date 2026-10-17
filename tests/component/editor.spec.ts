@@ -406,16 +406,87 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect(store.pages).toHaveLength(1)
   })
 
-  it('视口切换与画布缩放互相独立', async () => {
+  it('尺寸区显示「宽 × 高」，预设有名字和尺寸，画布与文档同步', async () => {
     expect(wrapper.find('.canvas-page').attributes('style')).toContain('width: 1440px')
+    expect(wrapper.find('[data-role="viewport-desktop"]').text()).toContain('1440 × 900')
+    expect(wrapper.find('[data-role="viewport-label"]').text()).toBe('1440 × 900')
+
     await wrapper.find('[data-role="viewport-mobile"]').trigger('click')
     expect(store.viewport().w).toBe(375)
+    expect(store.viewport().h).toBe(812)
     expect(wrapper.find('.canvas-page').attributes('style')).toContain('width: 375px')
-    expect(wrapper.find('[data-role="viewport-label"]').text()).toContain('375')
+    expect(wrapper.find('[data-role="viewport-label"]').text()).toBe('375 × 812')
+
     await wrapper.find('[data-role="zoom-in"]').trigger('click')
     expect(store.zoom).toBe(1.25)
     expect(wrapper.find('[data-role="zoom"]').text()).toBe('125%')
     expect(wrapper.find('.canvas-page').attributes('style')).toContain('width: 468.75px')
+  })
+
+  it('视口高度可以单独改：画布高度、文档设计高度、尺寸标签一起变', async () => {
+    const height = wrapper.find('[data-role="viewport-height"]')
+    expect(height.exists()).toBe(true)
+    ;(height.element as HTMLInputElement).value = '720'
+    await height.trigger('change')
+    expect(store.viewport().h).toBe(720)
+    expect(store.activePage?.viewport.h).toBe(720)
+    expect(wrapper.find('.canvas-page').attributes('style')).toContain('height: 720px')
+    expect(wrapper.find('[data-role="viewport-label"]').text()).toBe('1440 × 720')
+  })
+
+  it('视口高度越界时夹取到 200..10000，非法输入忽略', async () => {
+    async function typeHeight(value: string): Promise<void> {
+      const input = wrapper.find('[data-role="viewport-height"]')
+      ;(input.element as HTMLInputElement).value = value
+      await input.trigger('change')
+    }
+    await typeHeight('999999')
+    expect(store.viewport().h).toBe(10_000)
+    await typeHeight('10')
+    expect(store.viewport().h).toBe(200)
+    await typeHeight('')
+    expect(store.viewport().h).toBe(200)
+    await typeHeight('abc')
+    expect(store.viewport().h).toBe(200)
+  })
+
+  it('缩放下拉显示当前百分比（不再固定写 100%），可以直接选档位', async () => {
+    const select = wrapper.find('[data-role="zoom-select"]')
+    expect(select.exists()).toBe(true)
+    expect((select.element as HTMLSelectElement).value).toBe('100')
+
+    await wrapper.find('[data-role="zoom-in"]').trigger('click')
+    expect((select.element as HTMLSelectElement).value).toBe('125')
+
+    ;(select.element as HTMLSelectElement).value = '50'
+    await select.trigger('change')
+    expect(store.zoom).toBe(0.5)
+
+    ;(select.element as HTMLSelectElement).value = '200'
+    await select.trigger('change')
+    expect(store.zoom).toBe(2)
+    await wrapper.find('[data-role="zoom-in"]').trigger('click')
+    expect(store.zoom).toBe(2)
+  })
+
+  it('一键清空：空页面置灰，有元素后点一下清空整页，撤销能整页恢复', async () => {
+    const clearButton = wrapper.find('[data-role="toolbar-clear"]')
+    expect(clearButton.attributes('disabled')).toBeDefined()
+
+    store.insertComponent('text', { position: { x: 40, y: 40 } })
+    store.insertComponent('rect', { position: { x: 120, y: 40 } })
+    await flush()
+    expect(clearButton.attributes('disabled')).toBeUndefined()
+
+    await clearButton.trigger('click')
+    expect(store.topLevel).toHaveLength(0)
+    expect(store.selectedIds).toHaveLength(0)
+    expect(wrapper.findAll('.canvas-el')).toHaveLength(1) // 只剩根容器
+    expect(clearButton.attributes('disabled')).toBeDefined()
+
+    keydown('z', { ctrlKey: true })
+    await flush()
+    expect(store.topLevel).toHaveLength(2)
   })
 
   it('自定义视口宽度：画布宽度与文档设计宽度同步，切预设会覆盖', async () => {

@@ -214,6 +214,17 @@ npm run build
 **验收**：新增 3 例（`tests/unit/theme.spec.ts` 的 `tokenLabel` 全量映射与回落、`tests/component/editor.spec.ts` 的分类折叠/点开/搜索全开、`tests/component/m8.spec.ts` 的主题变量中文名 + 英文原名保留），全量 `npm test` 52 文件 / 587 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 282.38 kB / gzip 97.54，CSS 25.91 kB / gzip 5.10）、`test:perf` 布局 4.78ms / 导出 117.87ms、`test:smoke` 通过（`mediaQueries 2` / `layoutBoxes 10` / `zipBytes 6905`）。**未做**：折叠状态不持久化（刷新回默认），也没有做搜索置顶/常用组件；主题中文名只影响显示，样式引用与导出仍是英文 token；输入框样式分在 `.editor-input` / `.prop-input` 两处，`color`/`range` 这类原生控件没统一；层次感靠 tokens + `editor.css` 里的硬编码颜色，没有浅色/深色两套主题；网格线颜色仍固定浅灰。
 
 
+### M14 尺寸显示、缩放档位、一键清空与内容盒间距（计划外，用户第六轮反馈）
+
+**触发**：用户第六轮反馈「我们的平台的尺寸选择应是类似于1440*900之类的展示形式，且关于缩放设置那只有100%，+-我都不知道加减到多少%，加上一键清除功能，部分组件内的文字或提示字体与上下边框的距离并不一致」。
+
+**现状/根因**：① 顶栏只有一个宽度输入框 + 「桌面 1440」，高度在界面上既看不见也改不了，而 `Page.viewport` 本来就是宽高成对的（画布纸张与导出 body 都用它）；② 缩放的中间按钮是写死的 `<button data-role="zoom-reset">100%</button>`，不是当前档位，`－`/`＋` 没有 title 说明范围，用户看不出 25%–200% 的边界；③ 没有「清空当前页面」入口，删一页元素只能逐个框选或逐个删；④ 画布内容盒 `.canvas-el__content` 没有 `box-sizing`，`height: 100%` + 8px 上下 padding 在 content-box 下多出 16px 被 `overflow: hidden` 裁掉，视觉上变成「上边距 8、下边距 0」；同时画布里的 `canvas-el__title / __muted / __sub / __caret / __choice / __box / __dot / __switch / __play` 等类此前**一条 CSS 规则都没有**（导出侧反而有 `.el__title` / `.el__muted` / `.sub`），于是副标题与正文同字号、提示文字不变灰、下拉箭头紧贴文字、列表/表格/标签页用浏览器默认排版。
+
+**做了什么**：① 尺寸区改成「三个两行预设按钮（桌面 / 平板 / 手机 + `1440 × 900`）+ 宽输入 × 高输入 + 当前尺寸文本」，`VIEWPORTS.label` 只留预设名，`[data-role="viewport-label"]` 显示 `${w} × ${h}`；store 新增 `setViewportHeight()`（夹取 200–10000 后复用 `applyViewport()`），与既有 `setViewportWidth()` 同路径（D70）；② 缩放中间换成 `[data-role="zoom-select"]` 下拉（25 / 50 / 75 / 100 / 125 / 150 / 175 / 200%，非整档如「适应」算出的 113% 会插进候选），`－`/`＋` 加 title 写明「范围 25%–200%，每次 25%」，删掉写死的 100% 按钮（D70）；③ store 新增 `canClearPage` 与 `clearPage()`：取根容器全部直接子节点 → `removePatches()` 级联删整棵子树 → 作为**一条**文档补丁 `commit('清空页面（N 个元素）', patches)` → 清空选区 → toast 提示可 Ctrl+Z 撤销；顶栏加 `[data-role="toolbar-clear"]` 按钮，空页面自动置灰（D71）；④ `.canvas-el__content` 改 `box-sizing: border-box` + flex 纵向，按 `data-type` 给单行控件（button / badge / label / link / input / select / date / number / file / switch / alert / tabs / nav / audio / slider）横向 + `align-items: center`，图标/头像/视频居中，复选/单选横排换行；补齐上面那批 `canvas-el__*` 类与画布里 `.el__list / .el__table / .el__tabs` 的基础排版（导出侧 BASE_CSS 一字未动，保住两个结构快照）（D72）。
+
+**验收**：把原「视口切换与画布缩放互相独立」1 例拆成 5 例（尺寸显示宽 × 高、视口高度单独可改、高度越界夹取、缩放下拉切换与上下限、一键清空 + Ctrl+Z 撤销），全量 `npm test` 52 文件 / 591 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.23 kB / gzip 98.12，CSS 29.20 kB / gzip 5.64）、`test:perf` 布局 5.12ms / 导出 128.84ms（CSS 40.09 / HTML 44.17 / 整站 42.25 / ZIP 6.89ms）、`test:smoke` 通过（`mediaQueries 2` / `layoutBoxes 10` / `zipBytes 6905`）。**未做**：视口高度不参与响应式断点（断点只按 `minWidth` 判定）也不影响导出媒体查询；一键清空只清当前页面元素，不清页面背景/主题/尺寸，也不是「清空项目」；画布与导出仍是两套盒模型（导出没有那层 padding/flex，`layout.padding` 也不参与导出）；单行控件居中按 `data-type` 白名单维护，注册新组件类型时要记得加进去。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

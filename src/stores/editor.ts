@@ -116,9 +116,9 @@ export const MAX_ZOOM = 2
 export const ZOOM_STEP = 0.25
 
 export const VIEWPORTS: Record<string, { w: number; h: number; label: string }> = {
-  desktop: { w: 1440, h: 900, label: '桌面 1440' },
-  tablet: { w: 768, h: 1024, label: '平板 768' },
-  mobile: { w: 375, h: 812, label: '手机 375' },
+  desktop: { w: 1440, h: 900, label: '桌面' },
+  tablet: { w: 768, h: 1024, label: '平板' },
+  mobile: { w: 375, h: 812, label: '手机' },
 }
 
 export interface Toast {
@@ -218,6 +218,8 @@ export const useEditorStore = defineStore('editor', () => {
       return Boolean(node) && id !== rootId.value && !node.meta.locked
     }),
   )
+  /** 画布上还有没有元素（工具栏「清空」按钮据此置灰） */
+  const canClearPage = computed(() => topLevel.value.length > 0)
   /** 主选中的原生节点（覆盖标记要读它自己的 overrides，有效节点里 overrides 是空的） */
   const primaryRaw = computed<SceneNode | null>(() => {
     const id = selectedIds.value[0]
@@ -469,6 +471,23 @@ export const useEditorStore = defineStore('editor', () => {
     if (protectedIds.length > 0) {
       pushToast(`已跳过 ${protectedIds.length} 个锁定元素${protectedIds.includes(rootId.value) ? '（含根节点）' : ''}`)
     }
+  }
+
+  /**
+   * 一键清空当前页面的所有元素（根容器保留，页面本身还在）。
+   * 走一次文档补丁提交，所以 Ctrl+Z 能整页还原 —— 破坏性操作必须可撤销。
+   */
+  function clearPage(): void {
+    const roots = topLevel.value.map((node) => node.id)
+    if (roots.length === 0) {
+      pushToast('当前页面已经是空的')
+      return
+    }
+    const patches = removePatches(activePage.value, roots)
+    if (patches.length === 0) return
+    selectedIds.value = []
+    commit(`清空页面（${roots.length} 个元素）`, patches)
+    pushToast('已清空当前页面的元素，可按 Ctrl+Z 撤销')
   }
 
   /** Esc / 面包屑的「上一层」：主选中换成它的父分区（父是根时停住） */
@@ -834,6 +853,13 @@ export const useEditorStore = defineStore('editor', () => {
     if (!Number.isFinite(width)) return
     const w = Math.round(Math.min(MAX_VIEWPORT, Math.max(MIN_VIEWPORT, width)))
     applyViewport(w, viewport().h)
+  }
+
+  /** 自定义视口高度：和宽度一样夹取，宽 × 高一起决定画布纸张尺寸 */
+  function setViewportHeight(height: number): void {
+    if (!Number.isFinite(height)) return
+    const h = Math.round(Math.min(MAX_VIEWPORT, Math.max(MIN_VIEWPORT, height)))
+    applyViewport(viewport().w, h)
   }
 
   function setZoom(value: number): void {
@@ -1362,6 +1388,7 @@ export const useEditorStore = defineStore('editor', () => {
     primary,
     primaryRaw,
     canRemoveSelection,
+    canClearPage,
     hoveredId,
     pointer,
     zoom,
@@ -1393,6 +1420,7 @@ export const useEditorStore = defineStore('editor', () => {
     clearSelection,
     insertComponent,
     removeSelection,
+    clearPage,
     duplicateSelection,
     reparent,
     updateLayout,
@@ -1423,6 +1451,7 @@ export const useEditorStore = defineStore('editor', () => {
     importText,
     setBreakpoint,
     setViewportWidth,
+    setViewportHeight,
     setZoom,
     zoomBy,
     fitZoom,
