@@ -32,7 +32,8 @@ import { createNode } from '@/core/ops'
 import { defaultSizeFor } from '@/core/schema/catalog'
 import { makeDoc, makeNode, makeNodes, makePage, docWithNodes } from './factories'
 
-const CATEGORY_IDS = ['layout', 'basic', 'form', 'media', 'display']
+// M7 起组件库多了 'custom'（「我的组件」，AI 生成的自定义组件归档在这里）
+const CATEGORY_IDS = ['layout', 'basic', 'form', 'media', 'display', 'custom']
 
 describe('组件描述符注册表', () => {
   it('内置组件库至少 30 个，每个描述符字段完整', () => {

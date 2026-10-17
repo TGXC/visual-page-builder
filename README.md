@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -138,6 +138,22 @@ M6 的判据是「**不配 key 也能用规则检查与修复；AI 产出的东�
 
 UI 是右侧栏的 `AiPanel.vue`：供应商下拉、接口设置折叠区、「一句话生成页面」、「选区指令」（空选区时按钮禁用）、设计检查列表（每条一个「修复」+ 一键修复）、调用记录。PLAN 验收「Mock provider 单测（合法补丁落库、越界引用拒绝、失败不落库、快照可撤销）」对应上表 2/3/6/7；「组件测试：选区指令后未选中节点 JSON 不变」对应 `tests/component/ai.spec.ts`（6 例，其中一例逐字节比较其余顶层节点）。
 
+## M7 已经做了什么：AI 进阶（文案 / 素材 / 生成组件 / 成本 / 降级）
+
+M7 的判据是「**AI 只出候选，用户点了才落库；不配 key 也全都能用**」。三条增强都遵循同一形状：**规则式实现（离线可用）+ Mock 供应商 + 供应商可换成真实模型 → 候选列表在面板上 → 应用时产出普通补丁走 `commit()`**：
+
+| # | 能力 | 实现 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 文案候选（AI4） | `textCandidates(prompt, { tone, maxLength })` 出 3 条互不相同的文案（plain / warm / bold，`MAX_TEXT_LENGTH = 80`）；应用走 `textPatch()` 只改 `props.text` 并带完整 `before` | `tests/unit/aiText.spec.ts`（5）、`tests/unit/aiStoreM7.spec.ts`（8） |
+| 2 | 素材候选（AI4） | `materialCandidates()` 用**自写 PNG 编码器** `core/png` 现场生成 3 张渐变占位图（`createPlaceholderPng` + stored zlib + CRC32/ADLER32），`materialPatch()` 写 `props.src` + `props.source = 'generated'` + 补 `alt`；`isUsableMaterial()` 只放行光栅图 dataURL | `tests/unit/png.spec.ts`（11）、`tests/unit/aiMaterial.spec.ts`（4） |
+| 3 | AI 生成自定义组件（AI5） | 受限 DSL（`DslNode` 只引用注册表类型 + 19 个白名单样式键 + `{{prop}}` 占位符，`DSL_MAX_NODES=30 / DEPTH=4 / PROPS=8`）→ `validateDsl()` → `compileDsl()` 成 `category: 'custom'` 的普通描述符 → iframe 预览 → 用户点注册才进「我的组件」 | `tests/unit/customDsl.spec.ts`（10）、`tests/unit/aiComponent.spec.ts`（5）、`tests/component/aiM7.spec.ts`（5） |
+| 4 | 自定义组件存档 | `src/core/persistence/custom.ts` → `localStorage['studio.custom.components.v1']`，**只存 DSL 数据**（读回来重新编译）；坏 JSON / 校验不过的条目静默丢弃，读写被拒返回空表 / false | `customDsl.spec.ts`、`aiStoreM7.spec.ts`（新会话自动恢复） |
+| 5 | 调用记录与成本（AI6） | `src/ai/usage.ts` 估算 token（CJK 一字 1 token、ASCII 4 字符 1 token）与费用（`gpt-4o-mini` 0.15/0.6 USD per 1M），**优先用供应商返回的 `usage`**；`aiUsage` 面板常显「N 次 · N tokens · $N · 模型」，日志每条带 `tokens/costUsd` | `tests/unit/aiUsage.spec.ts`（4）、`component/aiM7.spec.ts` |
+| 6 | 离线 / 失败降级（AI6） | `src/ai/offline.ts` 只做判定（`navigator.onLine === false`、`provider` 类错误）；store 在 `outcome.ok === false` 时**直接调规则式实现**，`aiDegraded` 显示「已改用内置规则助手」，失败仍写一条日志 | `tests/unit/aiOffline.spec.ts`（3）、`aiStoreM7.spec.ts`、`component/aiM7.spec.ts` |
+| 7 | 面板新增四个区 | `AiPanel.vue`：文案候选（语气 + 3 条可点候选）、素材候选（缩略图按钮）、生成组件（预览 iframe + 注册按钮）、成本行 + 降级提示；组件面板出现「我的组件」分组（空分组不显示） | `tests/component/aiM7.spec.ts`（5，断言候选应用后未选中节点逐字节不变） |
+
+PLAN 验收「Mock provider 单测（候选应用、组件注册）+ 组件测试（断网降级文案）」对应上表 1/2/3/6；真实模型效果需要用户自己的 key，本仓库交付的证据全部来自 Mock / 规则助手。
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -173,25 +189,35 @@ src/
 │   ├── ops/                 # 编辑器动作 → 补丁（插入/移动/删除/再制/对齐/移层）
 │   ├── codegen/             # HTML / CSS 生成；inlineStyle() 画布与导出共用
 │   ├── templates/           # 6 套示例模板
-│   ├── persistence/         # localStorage 读写 + 脏存档修正
+│   ├── persistence/         # localStorage 读写 + 脏存档修正 + 自定义组件 DSL 存档（custom.ts）
 │   ├── layout/              # computeLayout()：四种容器模式 / 四种尺寸模式 / constraints / hug 测量注入
 │   ├── dnd/                 # dropParentAt() 落点 + reparentPatches() 换父级（位置换算到新容器）
 │   ├── spacing/             # spacingHints()：拖动中的等距提示
 │   ├── responsive/          # 断点继承链 / 有效节点求解 / writeOverride() 只存差异 / media query 上界
-│   ├── components/          # 40 个组件的描述符注册表（插件式，registerComponent + subscribeRegistry）
+│   ├── components/          # 40 个组件的描述符注册表（插件式，registerComponent + subscribeRegistry + cssFor 作用域样式）
 │   ├── symbols/             # 组件定义 / 实例展开（合成 id）/ 覆盖白名单 / 循环引用检测
 │   ├── assistant/           # audit()：六条规则检查 + 每条的可执行修复补丁 + 迭代式 fixAll()
+│   ├── dsl/                 # 受限组件 DSL：validateDsl() 白名单校验 + compileDsl() → ComponentDescriptor + 预览 HTML
+│   ├── png/                 # 自写 PNG 编码器（stored zlib + CRC-32 / ADLER-32），给素材候选出占位图
 │   ├── site/                # buildSite()：静态多页站点（index.html + base.css + 每页 html/css）
 │   ├── zip/                 # createZip()：自写 stored ZIP + CRC-32（不引压缩库）
 │   ├── html/                # escapeHtml / safeUrl（codegen 与组件描述符共用）
 │   └── export/              # drawPage()：PNG 近似截图
 ├── utils/textMeasure.ts     # 离屏 canvas 折行测量（碰 document，所以不在 core）
 ├── ai/                      # AI 编排（碰 fetch / localStorage，所以不在 core）
-│   ├── types.ts             # AiProvider / AiRequest / AiResponse / AiProblem
-│   ├── catalog.ts           # 组件目录 + 页面大纲 + 两份 JSON Schema + buildMessages()
+│   ├── types.ts             # AiProvider / AiRequest / AiResponse / AiProblem（kind 含 page/instruction/text/plain/material/component）
+│   ├── catalog.ts           # 组件目录 + 页面大纲 + 各 kind 的 JSON Schema + buildMessages()
 │   ├── draft.ts             # PageDraft 三重校验（形状 / 收敛 / 自检）
 │   ├── instruction.ts       # 选区指令 → Patch[]：coercePatches / allowedIds / scopeProblems
+│   ├── text.ts              # 文案候选（语气 / 长度）+ textPatch()
+│   ├── material.ts          # 素材候选（core/png 渐变占位图）+ materialPatch() 写 src/source/alt
+│   ├── component.ts         # 一句话 → 组件 DSL 候选 + 预览 + 注册入「我的组件」
+│   ├── usage.ts             # token / 费用估算（优先用供应商返回的 usage）
+│   ├── offline.ts           # 离线与降级判定（store 负责兜底调用）
 │   ├── mock.ts              # 确定性 Mock provider（离线可用）
+│   ├── openai.ts            # OpenAI 兼容端点（key 只进请求头）
+│   ├── settings.ts          # apiKey / baseUrl / model → localStorage
+│   └── index.ts             # createAiService()：重试一次、调用记录、失败不落库
 │   ├── openai.ts            # OpenAI 兼容端点（key 只进请求头）
 │   ├── settings.ts          # apiKey / baseUrl / model → localStorage
 │   └── index.ts             # createAiService()：重试一次、调用记录、失败不落库
@@ -208,22 +234,24 @@ tests/
 └── smoke/                   # 导出冒烟：真实写盘 studio.html / site.zip，用外部工具校验（npm run test:smoke）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D44）
+├── decisions.md             # 架构决策记录（ADR，D1–D50）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M6）
+## 质量数据（M7）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 36 个文件 / **471 个用例全绿**（含 2 个导出结构快照） |
-| 覆盖率 | 语句 97.12% · 分支 90.66% · 函数 97.45% · 行 99.41%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 由单测与组件测试覆盖但不在 v8 统计里） |
-| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **2.94ms**（阈值 8ms；同机多轮在 2.6–4.9ms 之间波动） |
+| 测试 | 45 个文件 / **526 个用例全绿**（含 2 个导出结构快照） |
+| 覆盖率 | 语句 97.36% · 分支 90.63% · 函数 97.67% · 行 99.48%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 由单测与组件测试覆盖但不在 v8 统计里） |
+| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.01ms**（阈值 8ms；同机多轮在 2.6–4.9ms 之间波动） |
 | 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、`mediaQueries 2`、zip 6905 B，`Expand-Archive` 解压通过 |
-| 构建 | 81 modules；JS 235.07 kB（**gzip 82.15 kB**）；CSS 18.11 kB（gzip 3.73 kB） |
+| 构建 | 89 modules；JS 260.19 kB（**gzip 90.21 kB**）；CSS 18.94 kB（gzip 3.87 kB） |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 
-AI 之所以让包体涨了约 35 kB（gzip +12 kB），是因为 `src/ai`（目录/校验/两个供应商）与 `core/assistant`、`AiPanel.vue` 都进了编辑器包；它们没有引入任何新依赖。
+M7 让包体再涨约 25 kB（gzip +8 kB）：`core/png`（自写 PNG 编码器）、`core/dsl`（受限 DSL 校验与编译）、`src/ai/{text,material,component,usage,offline}.ts` 与面板新区都在编辑器包里；仍然没有引入任何新依赖。
+
+覆盖率在 M7 一度掉到分支 89.67%（低于 90 阈值）——新模块 `core/dsl`（79%）、`core/png`（85%）、`persistence/custom.ts`（70%）的分支没被覆盖。补齐的三类用例：PNG 的颜色越界/非有限尺寸/超过 65535 字节的多 stored 块；DSL 校验的 `props`/`size`/`style`/`children`/`text` 各种坏形状与「无样式节点 `cssFor` 返回空串」；存档在 `localStorage` 抛错（配额满、`SecurityError`、属性 getter 抛错）时的静默降级。
 
 ## 架构决策
 
@@ -246,6 +274,9 @@ M6 新增 D39–D44：AI 只产出结构化 JSON 且落库前过「形状 → �
 AI 新增页面走文档级历史条目（与补丁条目共用撤销栈）、AI 补丁里的 `before` 一律丢弃现取、
 一键修复必须迭代（一次审计的补丁摊平会互相覆盖）、密钥只存本机浏览器且 Mock 保证离线可用、
 选区指令的范围校验基于「选区 + 子树」且空选区优先报错。
+M7 新增 D45–D50：文案/素材/生成组件三条增强都是「先出候选、点了才落库」（落库走普通补丁历史，注册沿用 D33 不入文档历史）、
+素材用自写 PNG 编码器（`safeUrl` 放行光栅 dataURL 但拦 SVG）、受限 DSL 编译成普通 `ComponentDescriptor`（category `'custom'` + `cssFor(scope)`）、
+自定义组件 type 必须 ASCII（改名等于换 type）、token 与费用本地估算（优先用供应商 `usage`）、降级是 store 里的兜底调用而不是 provider 伪装。
 
 ## 本机开发环境的四个坑（Windows + 受限沙箱）
 
@@ -258,7 +289,15 @@ AI 新增页面走文档级历史条目（与补丁条目共用撤销栈）、AI
 
 ## 已知缺口 / 未做
 
-- **M7–M8 尚未实现**：文案/素材生成、AI 生成自定义组件、调用成本面板、性能与可访问性专项、版本历史与分享发布都在 [PLAN.md](PLAN.md) 里。M6 做完的是「离线可用的规则助手 + 只产出补丁的 AI 管线」。
+- **M8 尚未实现**：性能专项与可访问性、主题 token 面板、版本历史、分享发布、CI 与部署说明都在 [PLAN.md](PLAN.md) 里。M7 做完的是「AI 只出候选、点了才落库，且不配 key 也全都能用」。
+- **M7 的取舍与已知缺口**：
+  - **候选不落库，刷新即丢**：文案/素材候选只活在 store 内存里（`aiTextCandidates` / `aiMaterialCandidates` / `aiComponentCandidate`），页面刷新或切换项目后要重新生成；只有「应用」与「注册」的结果进文档/存档。
+  - **素材是渐变占位图**：`core/png` 按提示词哈希生成竖渐变图（320×200），不是真实配图也没有素材库检索；`MaterialSource` 里的 `'library'` 目前没有实现来源，图说文字只用来填 `alt`。
+  - **自定义组件的 type 与名字不同**：`customTypeOf('团队成员卡片')` 产出 `custom-<ascii-slug 或 FNV 短哈希>`，所以改名等于换 type（旧文档里的实例会变成未注册类型）；`localStorage` 存档同样按 `name` 覆盖同名 DSL。
+  - **生成组件只有三种模板**：Mock 按关键词路由到「团队成员卡片 / 价格套餐卡片 / 通用卡片」，没有多轮修改（只能重新描述再生成），也没有「在画布上编辑自定义组件内部」的入口。
+  - **token 与费用是估算**：`estimateTokens()` 用「CJK 一字 1 token、ASCII 4 字符 1 token」，只在供应商返回 `usage` 时才用它；`PRICING` 只列了 `gpt-4o-mini` / `gpt-4o` 两个型号，查不到就按 0 记（不编造价钱）。
+  - **降级只覆盖「供应商不可用」**：`navigator.onLine === false` 或 provider 类错误才回落规则助手；模型返回的形状错误仍只报错不改走规则助手。
+  - `src/ai` 不在覆盖率统计范围内（`vite.config.ts` 的 `coverage.include` 只看 `src/core/**`），它的质量证据是 AI 单测 + 面板组件测试。
 - **M6 的取舍与已知缺口**：
   - **没有配真实模型时的「生成」是确定性模板**：`createMockProvider()` 按关键词出草稿/补丁，能证明整条管线（校验、落库、快照、撤销）是通的，但不代表模型质量；真实质量要配 OpenAI 兼容端点（`src/ai/openai.ts`）。
   - **只有「生成新页面」和「改选区」两条 AI 入口**，没有多轮对话、没有上下文记忆（每次请求都重发页面大纲 + 组件目录），也没有「让 AI 解释为什么这么改」。

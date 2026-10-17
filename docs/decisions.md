@@ -372,4 +372,53 @@
 
 **代价**：`allowedIds` 每轮重新计算（O(子树)）；用户想「把选中的卡片移到另一个容器」时，目标父节点若不在选区内就会被拒（当前实现只允许在选区内移动）。
 
+## D45：文案 / 素材 / 组件三条 AI 增强都先出候选，落库仍走普通补丁历史
+
+**决定**：`src/ai/text.ts` 的 `textCandidates()` 给 3 条文案候选、`src/ai/material.ts` 的 `materialCandidates()` 给 3 张占位图、`src/ai/component.ts` 的 `componentCandidates()` 给 1 个受限 DSL 候选，**生成不写文档**；用户点某条候选后，store 用 `textPatch()` / `materialPatch()` 生成普通 `update` 补丁再 `commit()`（标签分别是 `AI 文案：<前 16 字>`、`AI 素材：应用配图`）。注册自定义组件同理：`registerCandidate()` 只进注册表 + 本机存档，不进文档历史（沿用 D33）。
+
+**理由**：AI4 的验收就是「3 个候选 → 应用其一 → 可撤销」；候选不落库保证「AI 猜错也不污染文档」，而落库走普通补丁历史复用了 M5/M6 已有的撤销与导出链路（不需要第三种历史条目）。
+
+**代价**：候选列表是面板本地状态，刷新页面就没了（只有应用后的结果进文档）；素材是规则生成的渐变占位图，不是真图片。
+
+## D46：素材用自写 PNG 编码器（core/png）而不是引图片库或塞 SVG
+
+**决定**：`src/core/png/index.ts` 自写最小 PNG 编码器（IHDR 位深 8 / 颜色类型 2、IDAT 用 zlib stored 块、ADLER32 + CRC32 手写、`toBase64` 自写以避开 `btoa`/`Buffer`），`createPlaceholderPng()` 出竖向渐变；`crc32` 直接复用 `src/core/zip/index.ts:39`。
+
+**理由**：`safeUrl()`（`src/core/html/index.ts:19`）放行光栅图 dataURL 但**一律拦掉 SVG**，所以占位图必须是真 PNG 才可能被导出与画布同时接受；引 `pngjs`/`canvas` 这类依赖违反「不引拖拽库与 UI 组件库」的同类约束（能不加就不加），而在 `src/core` 里塞 SVG 又过不了 `safeUrl`。
+
+**代价**：stored 块不压缩，320×200 的渐变图约 192 KB base64（写进 `props.src` 会让文档变大）；只支持 RGB、无隔行、无缩放。
+
+## D47：受限 DSL 白名单 + `compileDsl()` 编译成普通 ComponentDescriptor
+
+**决定**：AI 生成组件只接受 `ComponentDsl { name, icon?, size?, props?, root }`（`DslNode` 只能引用注册表里已有的 `type` + 19 个白名单样式键 + `{{prop}}` 占位符），校验项有 `DSL_MAX_NODES=30 / DSL_MAX_DEPTH=4 / DSL_MAX_PROPS=8 / DSL_MAX_TEXT=120`、颜色正则、枚举表；通过后 `compileDsl()` 产出 category 为 `'custom'` 的 `ComponentDescriptor`（`toHtml` 与 `toCanvasHtml` 共用同一个 `renderNode`，`cssFor(scope)` 输出以 `.` + 外层类名开头的全部规则）。
+
+**理由**：AI5 要求「不允许任意 JS/CSS，只能进我的组件」。把 DSL 编译成**普通描述符**而不另建一套渲染路径，意味着自定义组件能自动获得导出（`codegen` 的 `cssFor` 段）、拖拽、属性面板、AI 目录注入（`componentCatalogText()` 遍历注册表）——一套机制而不是两套。
+
+**代价**：`customTypeOf(name)` 必须转成 ASCII（非 ASCII 名用 FNV-1a 短哈希，见 D48），用户看到的是「团队成员卡片」而 type 是 `custom-oyosit`；DSL 表达力有限（无嵌套样式、无伪类、无动画）。
+
+## D48：自定义组件的类型名必须是 ASCII（FNV-1a 短哈希兜底）
+
+**决定**：`customTypeOf(name)` = `custom-` + ASCII slug；名字里没有 ASCII 字母数字时用 FNV-1a 哈希取 6 位 36 进制（`hash ^= codePoint; hash = Math.imul(hash, 16777619)`，`(hash>>>0).toString(36).slice(0,6)`）。
+
+**理由**：type 会进 CSS 类名（`el--<type>`）、HTML 属性、导出文件名与 `componentCatalogText()`；中文 type 在导出站点的类名里虽然合法，但会在第三方工具链、URL、正则匹配里变成隐患。可读名字留在 `label`（面板显示）与 `aiDoc`（进 AI 目录）里。
+
+**代价**：同名不同字的组件可能哈希相同（6 位 36 进制 ≈ 2×10⁹，冲突概率可忽略但非零）；存档里存的是 DSL（含原始名字），读回来重新 `compileDsl()` 时 type 会重算，所以「改名」等于换了一个 type（旧文档里的实例会变成未注册类型）。
+
+## D49：token 与成本按本地估算，调用记录带 tokens/cost/model
+
+**决定**：`src/ai/usage.ts` 的 `estimateTokens()`（CJK 一字 1 token、ASCII 4 字符 1 token）与 `PRICING`（`gpt-4o-mini` 0.15/0.6、`gpt-4o` 2.5/10 USD per 1M tokens）；`usageOf()` **优先用供应商返回的 `response.usage`**，拿不到才本地估算；`AiCallLogEntry` 增加 `tokens / costUsd / model`，面板底部常显「N 次调用 · N tokens · $N · 模型」。
+
+**理由**：AI6 要求调用记录显示 prompt 摘要 / 耗时 / token。Mock 供应商没有 usage 字段，本地估算让「不配 key 也能看到成本面板」；查不到的型号按 0 计而不是猜价格。
+
+**代价**：估算是字节/字符启发式，中文文案偏保守；Mock 的 `model` 显示为 `'mock'`，价格恒为 0（面板里能看到 0 不代表免费，而是没有真实调用）。
+
+## D50：降级是 store 里的兜底调用，不是 provider 的伪装
+
+**决定**：`src/ai/offline.ts` 只做判定（`isOffline()` 认显式 `onLine === false`、`shouldFallback(codes, offline)` 认 `provider` 类错误）；真正的降级在 store：`aiTextOptions / aiMaterialOptions / aiComponentOption` 在 `outcome.ok === false` 时直接调用规则式实现（`textCandidates / materialCandidates / componentCandidates`），把 `aiDegraded` 设为 `OFFLINE_HINT` 或 `PROVIDER_FALLBACK_HINT` 并保留失败日志；三个 M7 方法的**未就绪路径也写一条日志**（summary `供应商未就绪`）。
+
+**理由**：如果让 Mock 假装是 OpenAI，调用记录里就看不出「这次是降级」；把判定与兜底分开，用户能同时看到「失败原因」和「我拿到了什么」。验收要求「断网降级文案」，`aiDegraded` 会渲染成面板顶部的 `[data-role="ai-degraded"]`。
+
+**代价**：降级结果与真实模型结果混在同一个候选列表里，只能靠文案与 `aiMessage` 的前缀区分；`isOffline()` 只看 `navigator.onLine`，代理层断网（onLine 仍为 true）会走 provider 失败分支（结果一致，但提示文案是「供应商不可用」）。
+
+
 

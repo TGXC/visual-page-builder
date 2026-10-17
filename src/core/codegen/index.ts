@@ -11,7 +11,7 @@
  */
 import type { Box, Breakpoint, Doc, DocSeo, NodeId, Page, SceneNode } from '../schema/types'
 import { computeLayout } from '../layout'
-import { renderContent } from '../components'
+import { getComponent, renderContent } from '../components'
 import { escapeHtml, safeUrl } from '../html'
 import {
   breakpointViewport,
@@ -224,6 +224,17 @@ export function generatePageCss(doc: Doc, pageKey: string, boxes?: Record<NodeId
     const decls = declarations(node, backgroundImageOf(node), layout.boxes[id])
     rules.push(`.${nodeClassOf(node)} { ${decls.join('; ')} }`)
   }
+  // M7 自定义组件：内部结构的样式由描述符自带（作用域限定在这一个实例的类名上）
+  const custom: string[] = []
+  for (const id of Object.keys(page.nodes)) {
+    const node = page.nodes[id]
+    if (!node || id === page.root) continue
+    const descriptor = getComponent(node.type)
+    if (!descriptor?.cssFor) continue
+    const scoped = descriptor.cssFor(`.${nodeClassOf(node)}`)
+    if (scoped.trim() !== '') custom.push(scoped)
+  }
+  if (custom.length > 0) rules.push(custom.join('\n'))
   const responsive = generateResponsiveCss(doc, page.id)
   if (responsive) rules.push(responsive)
   return rules.join('\n')

@@ -133,12 +133,31 @@ export function buildMessages(request: AiRequest): { role: 'system' | 'user'; co
   parts.push(
     request.kind === 'page'
       ? `请输出页面草稿 JSON（Schema：${JSON.stringify(draftJsonSchema())}）`
-      : `请输出补丁 JSON（Schema：${JSON.stringify(instructionJsonSchema())}）`,
+      : request.kind === 'text'
+        ? '请输出文案候选 JSON：{"candidates":[{"text":"...","tone":"plain|warm|bold"}]}，给 3 条互相不同的短文案。'
+        : request.kind === 'plain'
+          ? '请输出纯文本 JSON：{"text":"..."}，只给一条可以直接落库的短文案。'
+          : request.kind === 'material'
+          ? '请输出素材候选 JSON：{"candidates":[{"dataUrl":"data:image/png;base64,...","width":320,"height":200,"label":"..."}]}，只允许光栅图 dataURL。'
+          : request.kind === 'component'
+            ? `请输出自定义组件 JSON：{"dsl":${JSON.stringify(componentDslSchemaHint())}}（受限 DSL：只能组合组件目录里的类型 + 白名单样式键，不能写 JS/任意 CSS）`
+            : `请输出补丁 JSON（Schema：${JSON.stringify(instructionJsonSchema())}）`,
   )
   return [
     { role: 'system', content: system },
     { role: 'user', content: parts.join('\n\n') },
   ]
+}
+
+/** 受限 DSL 的形状提示（真实供应商用；本地仍会过 `validateDsl` 白名单） */
+export function componentDslSchemaHint(): Record<string, unknown> {
+  return {
+    name: '组件名（≤24 字）',
+    icon: '可选',
+    size: { w: 280, h: 140 },
+    props: [{ key: 'title', label: '标题', type: 'text', default: '默认文案' }],
+    root: { type: 'card', style: { bg: '#FFFFFF' }, children: [{ type: 'text', text: '{{title}}' }] },
+  }
 }
 
 /** 描述某个节点「能不能放子节点」，Mock 生成时用 */

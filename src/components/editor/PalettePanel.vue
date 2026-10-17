@@ -34,7 +34,9 @@ const groups = computed<{ key: string; label: string; items: ComponentDescriptor
   if (query !== '') {
     return [{ key: 'search', label: `搜索「${query}」`, items: searchComponents(query) }]
   }
-  return componentsByCategory().map((group) => ({ key: group.category, label: group.label, items: group.items }))
+  return componentsByCategory()
+    .filter((group) => group.items.length > 0)
+    .map((group) => ({ key: group.category, label: group.label, items: group.items }))
 })
 
 function onDragStart(event: DragEvent, type: string): void {

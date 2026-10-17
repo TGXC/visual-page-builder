@@ -259,9 +259,13 @@ describe('Mock provider 的输入检查', () => {
     expect(response.error).toContain('先选中')
   })
 
-  it('纯文本请求返回 text', async () => {
-    const response = await createMockProvider().complete({ kind: 'text', prompt: '给读书会写一句标语' })
+  it('纯文本请求（plain）返回 text，文案候选（text）返回 3 条候选', async () => {
+    const response = await createMockProvider().complete({ kind: 'plain', prompt: '给读书会写一句标语' })
     expect(response.ok).toBe(true)
     expect(typeof response.text).toBe('string')
+
+    const candidates = await createMockProvider().complete({ kind: 'text', prompt: '给读书会写一句标语' })
+    expect(candidates.ok).toBe(true)
+    expect((candidates.json as { candidates?: unknown[] }).candidates).toHaveLength(3)
   })
 })

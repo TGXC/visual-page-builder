@@ -8,8 +8,8 @@
  */
 import type { Doc, NodeId, PageId } from '../core/schema/types'
 
-/** 三类请求：生成页面 / 编辑选区 / 纯文本（M7 文案用） */
-export type AiKind = 'page' | 'instruction' | 'text'
+/** 请求类型：生成页面 / 编辑选区 / 文案候选 / 素材候选 / 生成组件（M7 补后三类） */
+export type AiKind = 'page' | 'instruction' | 'plain' | 'text' | 'material' | 'component'
 
 export interface AiRequest {
   kind: AiKind
@@ -36,6 +36,8 @@ export interface AiResponse {
   /** 供应商标识与耗时（面板显示「Mock / 12ms」） */
   provider: string
   ms: number
+  /** 真实供应商返回的用量（M7 成本面板；没有就本地估算，见 `usageOf`） */
+  usage?: { promptTokens: number; completionTokens: number }
 }
 
 export interface AiProvider {
@@ -43,6 +45,8 @@ export interface AiProvider {
   readonly label: string
   /** 是否配置齐全（Mock 永远是 true，真实供应商要 key） */
   readonly ready: boolean
+  /** 真实型号（M7 成本面板按它查价格表；Mock 没有） */
+  readonly model?: string
   complete(request: AiRequest): Promise<AiResponse>
 }
 

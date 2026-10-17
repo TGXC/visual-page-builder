@@ -13,7 +13,7 @@ import type { ComponentType, NodeId, SceneNode, StyleSpec } from '../schema/type
 import { CONTENT_KEYS, DEFAULT_STYLE, STYLE_KEYS, v1PropsFor, v1SizeFor, v1StyleFor } from '../schema/v1'
 import { escapeHtml, safeUrl } from '../html'
 
-export type ComponentCategory = 'layout' | 'basic' | 'form' | 'media' | 'display'
+export type ComponentCategory = 'layout' | 'basic' | 'form' | 'media' | 'display' | 'custom'
 
 export const COMPONENT_CATEGORIES: readonly { id: ComponentCategory; label: string }[] = [
   { id: 'layout', label: '布局' },
@@ -21,6 +21,7 @@ export const COMPONENT_CATEGORIES: readonly { id: ComponentCategory; label: stri
   { id: 'form', label: '表单' },
   { id: 'media', label: '媒体' },
   { id: 'display', label: '展示' },
+  { id: 'custom', label: '我的组件' },
 ]
 
 const CATEGORY_LABELS: Record<ComponentCategory, string> = {
@@ -29,6 +30,7 @@ const CATEGORY_LABELS: Record<ComponentCategory, string> = {
   form: '表单',
   media: '媒体',
   display: '展示',
+  custom: '我的组件',
 }
 
 /** 渲染上下文：描述符拿到的都是已经归一化好的值（转义、URL 白名单已做） */
@@ -71,6 +73,12 @@ export interface ComponentDescriptor {
   aiDoc: string
   /** 实例可覆盖的属性白名单（M4 组件/实例用） */
   overridable: readonly string[]
+  /**
+   * 组件自带的作用域 CSS（M7 自定义组件用）：入参是外层元素的选择器（如 `.n-c1`），
+   * 返回的每条规则都必须以它开头。codegen 会把它追加到页面样式表末尾，
+   * 这样自定义组件的内部结构也能类名化 —— 导出仍然没有内联样式。
+   */
+  cssFor?: (scope: string) => string
   /** 内部类型：注册进收敛层与渲染，但不进组件面板（如 `instance`） */
   hidden?: boolean
 }

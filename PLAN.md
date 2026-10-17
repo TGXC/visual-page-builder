@@ -153,6 +153,8 @@ npm run build
 
 **验收**：Mock provider 单测 + 组件测试（候选应用、组件注册、断网降级文案）。注：本里程碑的**真实模型效果需用户提供 key 才能演示**，默认交付以 Mock 证据为准，README 如实标注。
 
+**实现偏离（已完成）**：三条增强都做成「规则式实现 + Mock 供应商 + 可换真实模型」的同一形状，落库仍旧只走 `commit()`：文案 `textCandidates(prompt, { tone, maxLength })` → `textPatch()` 只改 `props.text`（历史标签 `AI 文案：<前 16 字>`）；素材 `materialCandidates()` 用**新写的 `core/png`**（stored zlib + CRC-32/ADLER-32，`safeUrl()` 放行光栅 dataURL 但拦 SVG）现场生成渐变占位图，`materialPatch()` 写 `props.src` / `props.source = 'generated'` / 补 `alt`（标签 `AI 素材：应用配图`）；生成组件走新的**受限 DSL**（`core/dsl`：`DslNode` 只引用注册表里的组件类型 + 19 个白名单样式键 + `{{prop}}` 占位符，`DSL_MAX_NODES=30 / DEPTH=4 / PROPS=8`）→ `validateDsl()` → `compileDsl()` 编译成 `category: 'custom'` 的普通 `ComponentDescriptor`（新增可选 `cssFor(scope)` 让自定义组件内部结构也能类名化）→ iframe `srcdoc` 预览 → 用户点注册才 `registerComponent()` 并写入 `localStorage['studio.custom.components.v1']`（**只存 DSL 数据，读回来重新编译**，坏条目静默丢弃）。**计划外的改动**：`ComponentCategory` 加 `'custom'`、组件面板空分组不显示、`PalettePanel` 的注册表订阅改用 `registryRevision` 保证 `aiCustomTypes` 能刷新；`AiKind` 加 `'plain' | 'material' | 'component'`，`writeText()` 改走 `'plain'`（`'text'` 保留给候选）。成本做成 `src/ai/usage.ts` 本地估算（CJK 一字 1 token、ASCII 4 字符 1 token；`PRICING` 只列 `gpt-4o-mini` 0.15/0.6 与 `gpt-4o` 2.5/10 USD per 1M，查不到按 0），面板常显「N 次 · N tokens · $N · 模型」；降级是 `src/ai/offline.ts` 只做判定、由 store 在 `outcome.ok === false` 时直接调规则式实现并把 `aiDegraded` 显示出来（未就绪的供应商也会写一条失败日志）。**未做**：多轮对话、素材库检索（`MaterialSource` 的 `'library'` 没有来源）、在画布上编辑自定义组件内部、真实模型效果演示（需要用户提供 key）。
+
 ### M8 收尾
 
 **任务**：性能达标（1000 节点拖动 60fps、首屏 gzip 预算、导出耗时）、可访问性检查、主题 token/模板 6 套/版本历史/分享发布、README + decisions + 演示视频 + 部署（静态托管，链接需用户账号）。

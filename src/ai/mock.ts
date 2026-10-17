@@ -8,6 +8,9 @@
 import type { NodeId, Page, SceneNode } from '../core/schema/types'
 import { hasComponent, isContainerType } from '../core/components'
 import { childrenOf } from '../core/tree'
+import { componentCandidates } from './component'
+import { materialCandidates } from './material'
+import { textCandidates } from './text'
 import type { AiProvider, AiRequest, AiResponse } from './types'
 
 export interface MockProviderOptions {
@@ -235,6 +238,19 @@ export function createMockProvider(options: MockProviderOptions = {}): AiProvide
           return { ok: false, error: '请先选中要修改的元素', provider: id, ms }
         }
         return { ok: true, json: mockInstruction(request), provider: id, ms }
+      }
+      if (request.kind === 'text') {
+        return { ok: true, json: { candidates: textCandidates(request.prompt) }, provider: id, ms }
+      }
+      if (request.kind === 'material') {
+        return { ok: true, json: { candidates: materialCandidates(request.prompt) }, provider: id, ms }
+      }
+      if (request.kind === 'component') {
+        return { ok: true, json: { dsl: componentCandidates(request.prompt)[0].dsl }, provider: id, ms }
+      }
+      if (request.kind === 'plain') {
+        const [first] = textCandidates(request.prompt)
+        return { ok: true, text: first?.text ?? titleOf(request.prompt), provider: id, ms }
       }
       return { ok: true, text: titleOf(request.prompt), provider: id, ms }
     },

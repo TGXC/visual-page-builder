@@ -141,6 +141,7 @@ describe('M4 组件注册表：API 分支', () => {
       'form',
       'media',
       'display',
+      'custom',
     ])
     expect(searchComponents('')).toHaveLength(listComponents().length)
     expect(searchComponents('绝不存在的东西')).toEqual([])

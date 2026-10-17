@@ -38,11 +38,24 @@ import {
   type HistoryState,
 } from '@/core/history'
 import { auditDoc, fixAll, type Issue } from '@/core/assistant'
-import { createAiService, type AiCallLogEntry } from '@/ai'
+import { createAiService, type AiCallLogEntry, type AiOutcome } from '@/ai'
+import {
+  componentCandidates,
+  describeCandidate,
+  registerCandidate,
+  type ComponentCandidate,
+} from '@/ai/component'
+import { materialCandidates, materialPatch, type MaterialCandidate } from '@/ai/material'
 import { createMockProvider } from '@/ai/mock'
+import { OFFLINE_HINT, PROVIDER_FALLBACK_HINT, isOffline, shouldFallback } from '@/ai/offline'
 import { createOpenAIProvider } from '@/ai/openai'
 import { loadAiSettings, saveAiSettings, type AiSettings } from '@/ai/settings'
+import { textCandidates, textPatch, type TextCandidate, type TextTone } from '@/ai/text'
 import type { AiProblem, AiProvider } from '@/ai/types'
+import type { UsageSummary } from '@/ai/usage'
+import { listComponents, registerComponent, subscribeRegistry } from '@/core/components'
+import { compileDsl } from '@/core/dsl'
+import { loadCustomDsl } from '@/core/persistence/custom'
 import {
   alignPatches,
   createNode,
@@ -918,6 +931,171 @@ export const useEditorStore = defineStore('editor', () => {
     return before - left
   }
 
+  // ── AI 进阶（M7）：文案候选 / 素材候选 / 生成自定义组件 / 成本面板 ──────
+  const aiTextCandidates = ref<TextCandidate[]>([])
+  const aiMaterialCandidates = ref<MaterialCandidate[]>([])
+  const aiComponentCandidate = ref<ComponentCandidate | null>(null)
+  /** 降级提示（断网或供应商不可用）；空串表示走的是正常供应商 */
+  const aiDegraded = ref('')
+
+  const aiOffline = computed(() => isOffline())
+  /** 调用记录的成本汇总：跟着日志引用变化重算 */
+  const aiUsage = computed<UsageSummary>(() => {
+    void aiLogs.value
+    return aiService.usageSummary()
+  })
+  // 组件注册表是模块级普通 Map，注册/卸载后要自己叫醒依赖它的 computed（D31）
+  const registryRevision = ref(0)
+  subscribeRegistry(() => {
+    registryRevision.value += 1
+  })
+  const aiCustomTypes = computed(() => {
+    void registryRevision.value
+    return listComponents()
+      .filter((item) => item.category === 'custom')
+      .map((item) => item.type)
+  })
+
+  // 启动即恢复本机存档的自定义组件（AI5：注册过就一直在「我的组件」里）
+  aiLoadCustomComponents()
+
+  /** 启动时把本机存档的自定义组件装回注册表（AI5：可导出、跨会话还在） */
+  function aiLoadCustomComponents(): number {
+    let count = 0
+    for (const dsl of loadCustomDsl()) {
+      try {
+        registerComponent(compileDsl(dsl))
+        count += 1
+      } catch {
+        // 坏存档已在 loadCustomDsl 里被过滤，这里再兜一层
+      }
+    }
+    return count
+  }
+
+  /** 供应商失败/断网时用规则式实现兜底（不碰网络） */
+  function aiNote(outcome: AiOutcome<unknown>): void {
+    if (outcome.ok) return
+    const codes = outcome.errors.map((item) => item.code)
+    if (shouldFallback(codes, aiOffline.value)) {
+      aiDegraded.value = aiOffline.value ? OFFLINE_HINT : PROVIDER_FALLBACK_HINT
+    } else {
+      aiDegraded.value = ''
+      aiMessage.value = problemText(outcome.errors)
+    }
+  }
+
+  /** AI4 文案：先拿候选（不落库），用户挑一个再提交补丁 */
+  async function aiTextOptions(prompt: string, tone: TextTone = 'plain'): Promise<boolean> {
+    const text = prompt.trim()
+    if (text === '') {
+      pushToast('先写一句想要什么文案', 'error')
+      return false
+    }
+    aiBusy.value = true
+    aiDegraded.value = ''
+    try {
+      const outcome = await aiService.textOptions(doc.value, activePage.value.id, text, { tone })
+      aiNote(outcome)
+      const candidates = outcome.ok && outcome.value ? outcome.value.candidates : textCandidates(text, { tone })
+      aiTextCandidates.value = candidates
+      aiMessage.value = `${outcome.ok ? '' : '（规则助手）'}${candidates.length} 个文案候选`
+      return true
+    } finally {
+      aiBusy.value = false
+      aiSyncLogs()
+    }
+  }
+
+  /** 应用第 N 个文案候选到当前选中节点（可撤销） */
+  function aiApplyText(index: number): boolean {
+    const candidate = aiTextCandidates.value[index]
+    if (!candidate) return false
+    const target = primary.value?.id ?? (selectedIds.value.length > 0 ? selectedIds.value[0] : undefined)
+    if (!target) {
+      pushToast('先选中要改文案的元素', 'error')
+      return false
+    }
+    const patch = textPatch(activePage.value, target, candidate.text)
+    if (!patch) {
+      pushToast('目标元素已经不存在了', 'error')
+      return false
+    }
+    commit(`AI 文案：${candidate.text.slice(0, 16)}`, [patch])
+    aiMessage.value = `已应用文案「${candidate.text}」`
+    return true
+  }
+
+  /** AI4 素材：占位图候选（本地编码 PNG，带来源标记） */
+  async function aiMaterialOptions(prompt: string): Promise<boolean> {
+    const text = prompt.trim() || '宣传配图'
+    aiBusy.value = true
+    aiDegraded.value = ''
+    try {
+      const outcome = await aiService.materialOptions(doc.value, activePage.value.id, text)
+      aiNote(outcome)
+      const candidates = outcome.ok && outcome.value ? outcome.value.candidates : materialCandidates(text)
+      aiMaterialCandidates.value = candidates
+      aiMessage.value = `${outcome.ok ? '' : '（规则助手）'}${candidates.length} 张素材候选`
+      return true
+    } finally {
+      aiBusy.value = false
+      aiSyncLogs()
+    }
+  }
+
+  /** 应用素材到当前选中的图片节点：写 props.src + 来源标记，缺 alt 补一个 */
+  function aiApplyMaterial(index: number, alt = ''): boolean {
+    const candidate = aiMaterialCandidates.value[index]
+    if (!candidate) return false
+    const target = primary.value?.id ?? (selectedIds.value.length > 0 ? selectedIds.value[0] : undefined)
+    if (!target) {
+      pushToast('先选中要替换的图片', 'error')
+      return false
+    }
+    const patch = materialPatch(activePage.value, target, candidate, alt)
+    if (!patch) {
+      pushToast('这张素材不可用', 'error')
+      return false
+    }
+    commit('AI 素材：应用配图', [patch])
+    aiMessage.value = `已应用素材「${candidate.label}」`
+    return true
+  }
+
+  /** AI5 生成自定义组件：只出受限 DSL 候选 + 预览，注册要用户再点一次 */
+  async function aiComponentOption(prompt: string): Promise<boolean> {
+    const text = prompt.trim()
+    if (text === '') {
+      pushToast('先描述一下想要的组件', 'error')
+      return false
+    }
+    aiBusy.value = true
+    aiDegraded.value = ''
+    try {
+      const outcome = await aiService.componentOption(text)
+      aiNote(outcome)
+      const candidate = outcome.ok && outcome.value ? outcome.value.candidate : componentCandidates(text)[0]
+      aiComponentCandidate.value = candidate
+      aiMessage.value = `${outcome.ok ? '' : '（规则助手）'}${describeCandidate(candidate)}`
+      return true
+    } finally {
+      aiBusy.value = false
+      aiSyncLogs()
+    }
+  }
+
+  /** 用户确认后注册：进「我的组件」+ 写本机存档（AI5） */
+  function aiRegisterComponent(): boolean {
+    const candidate = aiComponentCandidate.value
+    if (!candidate) return false
+    const descriptor = registerCandidate(candidate)
+    aiMessage.value = `已注册「${candidate.dsl.name}」到我的组件`
+    pushToast(`组件「${candidate.dsl.name}」已加入我的组件`)
+    void descriptor
+    return true
+  }
+
   // ── 自动保存 ──────────────────────────────────────────────────────────
   let saveTimer: number | undefined
   watch(
@@ -1036,6 +1214,21 @@ export const useEditorStore = defineStore('editor', () => {
     aiSetProvider,
     aiSaveSettings,
     aiClearLogs,
+    // M7
+    aiTextCandidates,
+    aiMaterialCandidates,
+    aiComponentCandidate,
+    aiDegraded,
+    aiOffline,
+    aiUsage,
+    aiCustomTypes,
+    aiTextOptions,
+    aiApplyText,
+    aiMaterialOptions,
+    aiApplyMaterial,
+    aiComponentOption,
+    aiRegisterComponent,
+    aiLoadCustomComponents,
   }
 })
 

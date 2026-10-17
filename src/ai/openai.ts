@@ -65,6 +65,7 @@ export function createOpenAIProvider(options: OpenAIProviderOptions): AiProvider
   return {
     id: 'openai',
     label: `OpenAI 兼容（${model}）`,
+    model,
     ready: apiKey !== '' && typeof doFetch === 'function',
     async complete(request: AiRequest): Promise<AiResponse> {
       const started = Date.now()
@@ -94,12 +95,27 @@ export function createOpenAIProvider(options: OpenAIProviderOptions): AiProvider
         })
         const raw = await response.text()
         if (!response.ok) return fail(`HTTP ${response.status}：${raw.slice(0, 200)}`, raw)
-        const parsed = extractJson(raw) as { choices?: { message?: { content?: string } }[] } | undefined
+        const parsed = extractJson(raw) as
+          | { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }
+          | undefined
         const content = parsed?.choices?.[0]?.message?.content
         if (typeof content !== 'string') return fail('返回里没有 choices[0].message.content', raw)
         const json = extractJson(content)
         if (json === undefined) return fail('模型返回的不是 JSON', content)
-        return { ok: true, json, text: content, provider: 'openai', ms: Date.now() - started }
+        const promptTokens = parsed?.usage?.prompt_tokens
+        const completionTokens = parsed?.usage?.completion_tokens
+        const usage =
+          typeof promptTokens === 'number' && typeof completionTokens === 'number'
+            ? { promptTokens, completionTokens }
+            : undefined
+        return {
+          ok: true,
+          json,
+          text: content,
+          provider: 'openai',
+          ms: Date.now() - started,
+          ...(usage ? { usage } : {}),
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         return fail(message.includes('abort') ? `请求超时（${timeoutMs}ms）` : message)
