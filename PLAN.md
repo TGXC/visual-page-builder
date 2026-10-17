@@ -165,6 +165,15 @@ npm run build
 
 **实现偏离（已完成）**：主题 token 落在新的 `src/core/theme`（样式里写 `$name`，导出 `var(--name)` + 只在页面真的用到 token 时注入 `:root{}`，画布用 `inlineStyle(…, tokens)` 解析成具体颜色）—— 计划里说「颜色/字号/间距/圆角/阴影」，实际**只支持 4 个颜色字符串字段**（`bg / color / borderColor / shadowColor`），因为 `fontSize`/`radius`/`lineHeight` 是 `number`，改成联合类型会波及 layout / codegen / canvas 全链路（D51）；数字 token 仍在主题面板里维护。模板 6 套 M1 就有了，M8 补的是「从模板新建页面」`pageFromTemplate(doc, id)`（节点 id 加页面前缀防撞、重名加序号、走文档级历史条目因此可撤销）。版本历史 `src/core/versions`（本机最多 20 条、`restoreVersion()` 返回深拷贝）与分享 `src/core/share`（`#doc=` base64url、12000 字符上限、`decodeDoc()` 能吃完整地址、`EditorShell.onMounted` 自动载入）都**不做后端**（D54/D55）。可访问性：助手补第六条规则 `missing-label`（表单类组件无 `label` 也无文案才报），键盘在已有的方向键微调之外加了 **Alt + 方向键换选中项**；导出的 `<div>` 盒子语义没有改成 `<header>/<nav>/<section>` 大纲映射。性能：`tests/perf/export.perf.spec.ts` 覆盖 1000 节点导出链路并打印分阶段中位数，**首跑 898.66ms → 优化后 73–80ms**（`core/tree` 加 `childrenIndex()`、`renderContext().children` 改懒计算、`buildSite()` 复用激活页 HTML，导出字节数不变，D53）。CI 补 `.github/workflows/ci.yml`（lint → test → coverage → build → perf → smoke → 上传 dist）与 `scripts/sandbox-shim.cjs`（存在性判断垫片，沙箱与 CI 同一条命令，D56）。**未做**：演示视频、线上静态托管部署（需要用户账号）、拖动 60fps 的自动化帧率断言（只在浏览器里人工感受）、版本 diff 视图、token 别名/继承。
 
+### M9 体验修订（计划外，用户实测反馈）
+
+**触发**：用户拿实际产物跟参考平台（`D:\AI工作区\项目\visual-builder`）对比后给出四条反馈——「画布没有格子」「模板的删除功能有问题，要么删不掉，要么删不完」「各选择功能项的 UI 和排版看着很不舒服」。M0–M8 的计划里没有这一轮，属于上线前的体验补齐。
+
+**做了什么**：① 画布网格（次网格 8px + 主网格 64px，画在缩放层外、间距随 zoom 换算，D57）；② 删除保护（选中根节点 Delete 会崩画布的真 bug 修掉，`removeSelection()` 统一过滤根与 `meta.locked`，右键菜单同一份判断置灰、单选属性面板补删除按钮，D58/D62）；③ 页面级操作（新建 / 重命名 / 删除页 / 载入模板）从 `setDoc()` 改成 `commitDoc()` 文档级历史条目，撤销栈不再被清空（D60）；④ 树形文档的选择难问题（层级点选：第一次选最外层分区、再点下钻、到底循环；`Alt+点击` 直达深层；面包屑；`Esc` 退层；多选包围框；框选改为「命中祖先就只选祖先」，D59）；⑤ 排版对齐参考平台（右栏七块面板竖着堆 → 页签 + `v-show` 保持挂载，D61；选中框 `outline: 2px + offset -2px`、蓝底白圈手柄、红色虚线磁吸线、图层行/组件卡片间距与 hover）。
+
+**验收**：新增 `tests/component/selection.spec.ts`（11 例，含白屏回归、根/锁定删除保护、级联删除 + undo 逐字节还原、页面级操作可撤销、面包屑与 Alt 深选）；全量 `npm test` 50 文件 / 568 用例、覆盖率 97.18 / 90.5 / 97.37 / 99.35、`lint` 0、`build` 0 类型错误、`test:perf` 布局 3.54ms / 导出 70.92ms、`test:smoke` 通过。**未做**：拖动 60fps 的自动化帧率断言、多选统一外框只做了虚线包围框（没有做参考平台那种逐元素描边叠加）、图层树拖拽排序、面板宽度可拖拽调整。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）、M8（收尾：主题 token + 版本历史 + 分享发布 + 可访问性 + 性能预算 + CI）已完成 —— PLAN.md 的 M0→M8 全部走完。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）、M8（收尾：主题 token + 版本历史 + 分享发布 + 可访问性 + 性能预算 + CI）已完成 —— PLAN.md 的 M0→M8 全部走完；之后按用户对 WebBuilder 的实测反馈补了 M9（画布网格 / 层级选择 / 删除保护 / 右侧栏页签）。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -170,6 +170,20 @@ M8 的判据来自功能文档 L7 + E7 + E8：「**改主题色 → 所有引用
 
 M8 的本地生产预览证据：`npm run build` 成功后 `npm run preview -- --port 4173`（见验收日志），用 `Invoke-WebRequest` 取 `/`、`/assets/*.js`、`/assets/*.css` 全部 200。
 
+## M9 已经做了什么：画布与选择体验（按用户实测反馈修订）
+
+触发这次修订的是用户对 WebBuilder 的实测反馈：**画布没有格子、删除要么删不掉要么删不完、选择相关的 UI 与排版看着不舒服**。逐条对齐后：
+
+| # | 反馈 | 根因 / 做法 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 画布没有格子 | 加 `.canvas-page__grid` 双层网格：次网格 8px + 主网格 64px，**画在缩放层外面**、间距按 `store.zoom` 换算（参考实现是单层 8px 且在缩放层内，25% 下线距只剩 2px 看着像噪点，见 D57） | `tests/component/selection.spec.ts`「画布上有页面网格层」 |
+| 2 | 删除「删不掉」 | 真 bug：选中根节点后 Delete 会连根删掉 → `ElementView` 读空节点 → **整片画布白屏**（探针报文 `TypeError: Cannot read properties of undefined (reading 'id')`）。修法见 D58：`removeSelection()` 过滤根节点与 `meta.locked`，全被保护就按原因提示；右键菜单同一份判断置灰并换文案；单选属性面板补危险按钮 | `selection.spec.ts`「锁定元素按 Delete 不删」「根节点按 Delete 不删」「单选时属性面板有删除按钮」 |
+| 3 | 删除「删不完」 | 页面级操作（新建 / 重命名 / 删除页 / 载入模板）原来走 `setDoc()` 会 `createHistory` **清空撤销栈**，删错只能刷新。改成 `commitDoc()` 文档级历史条目（D60），撤销/重做能跨页面操作 | `selection.spec.ts`「从模板新建页面与删除页面都可撤销」「删容器连子孙一起删，撤销后逐字节还原」 |
+| 4 | 选择点不到 / 选不准 | 树形文档里子节点铺满容器，点哪都选不到外层分区。加**层级点选**（第一次选最外层分区，再点下钻，到底循环）、`Alt+点击` 直达最深层、画布左上角**面包屑**（点任一层选中）、`Esc` 退一层（D59）；多选时画整体虚线包围框（`[data-role="multi-box"]`）；框选改为「命中祖先就只选祖先」，容器内部的元素也能框到（原来只框根级节点） | `selection.spec.ts`「点嵌套元素先选中最外层分区，再点一次下钻」「Alt + 点击直接选中」「面包屑路径」 |
+| 5 | 排版不舒服 | 右侧栏从「七块面板竖着堆」改成 **页签**（属性 / 布局 / 主题 / AI / 历史 / 分享 / 代码，全部 `v-show` 保持挂载，见 D61）；选中框改 `outline: 2px + offset -2px`、手柄改蓝底白圈、磁吸辅助线改红色虚线、图层行按参考平台加大行高与选中描边、组件卡片 hover 加浅底 | 既有 50 个测试文件全绿；选择相关断言见 `selection.spec.ts`（11 例） |
+
+M9 没有新依赖、没有新 npm 脚本；改动集中在 `src/components/canvas/CanvasStage.vue`、`src/components/editor/{EditorShell,PropPanel,ContextMenu}.vue`、`src/stores/editor.ts`、`src/styles/editor.css`，测试新增 `tests/component/selection.spec.ts`（11 例）。
+
 
 ## M0 已经做了什么
 
@@ -254,27 +268,27 @@ tests/
 └── smoke/                   # 导出冒烟：真实写盘 studio.html / site.zip，用外部工具校验（npm run test:smoke）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D56）
+├── decisions.md             # 架构决策记录（ADR，D1–D62）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M8，最终）
+## 质量数据（M9）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 49 个文件 / **557 个用例全绿**（含 2 个导出结构快照） |
+| 测试 | 50 个文件 / **568 个用例全绿**（含 2 个导出结构快照） |
 | 覆盖率 | 语句 97.18% · 分支 90.5% · 函数 97.37% · 行 99.35%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 与 Vue 组件由单测与组件测试覆盖但不在 v8 统计里） |
-| 性能（布局，E7） | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.14ms**（阈值 8ms；同机多轮 2.5–5.2ms） |
-| 性能（导出，E7） | 1000 节点真实导出链路（CSS 243848 B + HTML 305481 B + 整站 + ZIP 375581 B）中位数 **94.43ms**（阈值 1000ms；同机多轮 73–95ms），分阶段 CSS 27.71 / HTML 30.04 / 整站 29.65 / ZIP 5.02ms |
+| 性能（布局，E7） | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.54ms**（阈值 8ms；同机多轮 2.5–5.2ms） |
+| 性能（导出，E7） | 1000 节点真实导出链路（CSS 243848 B + HTML 305481 B + 整站 + ZIP 375581 B）中位数 **70.92ms**（最快 65.88ms；阈值 1000ms），分阶段 CSS 21.43 / HTML 24.10 / 整站 23.73 / ZIP 1.88ms |
 | 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、`mediaQueries 2`、zip 6905 B，`Expand-Archive` 解压通过 |
-| 构建 | 98 modules；JS 275.21 kB（**gzip 95.08 kB**）；CSS 19.87 kB（gzip 4.04 kB） |
-| 生产预览 | `npm run build` 后 `npm run preview -- --port 4173`：`/` 200（483 B）、`/assets/index-*.js` 200（275179 B）、`/assets/index-*.css` 200（19873 B） |
+| 构建 | 98 modules；JS 279.10 kB（**gzip 96.24 kB**）；CSS 22.06 kB（gzip 4.38 kB） |
+| 生产预览 | `npm run build` 后 `npm run preview -- --port 4173`：`/` 200、`/assets/index-*.js` 200、`/assets/index-*.css` 200 |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 | CI | `.github/workflows/ci.yml`：lint → test → coverage → build → perf → smoke → 上传 dist |
 
-M8 让包体涨约 15 kB（gzip +5 kB）：`core/theme`、`core/versions`、`core/share` 与三个新面板；仍然没有引入任何新依赖（PNG 与 ZIP 都是自写编码器，见 D52）。
+M9 让 CSS 从 19.87 kB 涨到 22.06 kB（gzip +0.34 kB）、JS 从 275.21 kB 涨到 279.10 kB（gzip +1.16 kB）：网格层、面包屑、包围框、页签与删除保护；仍然没有引入任何新依赖。
 
-性能这一轮抓到一个真问题：E7 基准首跑 1000 节点导出中位数 **898.66ms**（离 1s 预算只剩 10%），而布局只要 2.79ms。根因不是布局，是 `childrenOf()`/`childNodes()` 在每个节点上做一次全表扫描（O(n²)）：三处改动（`childrenIndex()` 索引、`renderContext().children` 懒计算、`buildSite()` 复用激活页 HTML）把它压到 **73–95ms**，导出字节数一个都没变（D53）。
+性能这一轮没有退化：导出链路的瓶颈（`childrenOf()` 全表扫描）在 M8 已换成 `childrenIndex()`，本轮中位数 70.92ms 与上一轮 73–95ms 持平；新增的网格层只是四条 CSS 渐变，不参与布局计算（D57）。
 
 
 ## 架构决策
@@ -317,7 +331,14 @@ perf/smoke 脚本用「存在性判断垫片」让沙箱与 CI 跑同一条命�
 
 ## 已知缺口 / 未做
 
-- **PLAN.md 的 M0–M8 全部完成**：M8 交付了主题 token、从模板新建页面、版本历史、分享链接、可访问性补充规则与键盘选择、性能基准（布局 + 导出）与 CI。下面按里程碑列出仍然存在的取舍与缺口（都是「知道但没做」，不是没发现）。
+- **PLAN.md 的 M0–M8 全部完成，另有一轮计划外的 M9 体验修订**：M8 交付了主题 token、从模板新建页面、版本历史、分享链接、可访问性补充规则与键盘选择、性能基准（布局 + 导出）与 CI；M9 是用户实测后补的画布网格、删除保护、层级选择与右栏排版（见「M9 已经做了什么」）。下面按里程碑列出仍然存在的取舍与缺口（都是「知道但没做」，不是没发现）。
+- **M9 的取舍与已知缺口**：
+  - **网格是 CSS 渐变不是真 DOM 网格**：次网格 8px、主网格 64px 两层，间距随 `zoom` 换算（`background-size` 用 `8×zoom` / `64×zoom`），所以缩放到很小（<25%）时细网格会糊成一片淡色、缩到很大时线会变粗；没有做「隐藏网格 / 只留主网格」的开关，也没有参考平台那种标尺。
+  - **多选只有虚线包围框**：参考平台是每个选中元素各自描边，这里 `.canvas-multibox` 画一个 `unionOf` 的虚线大框 + 「N 个元素」标签，框内元素自身的选中描边只在单选的元素上出现（多选时用 `data-role="multi-box"` 那份表示）；没有多选属性面板（右侧仍显示单选属性）。
+  - **层级点选是「点着往下钻」而不是图层树**：第一次点最外层分区、再点同一处下钻一层、点到底循环回最外层，`Alt+点击` 直达最深；面包屑只显示当前选中链、不能拖；图层树（`LayerPanel`）没有做「点击选父/子」的联动，也没有拖拽排序。
+  - **删除保护在 UI 入口做，不在核心层**：`removeSelection()` 过滤 `rootId` 与 `meta.locked`、右键菜单同一份判断置灰，但 `src/core/ops` 的 `removePatches()` 本身仍不检查 locked（直接调 store/ops 的代码需要自己守规矩）；页面级操作的撤销是整份文档快照（D60），连续删多页时内存占用比补丁条目高。
+  - **右栏页签是 `v-show` 全挂载**：七个面板常驻内存（为了保住 AI 候选、代码页签这些内部状态），初次渲染比按需 `v-if` 略慢；页签本身不可拖动/重排，面板宽度也不能拖拽调整。
+  - **排版只对齐到参考平台的「密度与层级感」**：选中框、手柄、图层行、组件卡片间距、右栏页签是按 `visual-builder/index.html` 的取值抄的，但没有引入它的设计 token/主题系统（我们的颜色走 `src/styles/tokens.css` 的 CSS 变量），两边的深色模式表现也没有逐项比对。
 - **M8 的取舍与已知缺口**：
   - **主题 token 只覆盖 4 个颜色字段**（`bg / color / borderColor / shadowColor`）：`fontSize`/`radius`/`lineHeight` 这些数字字段还是普通数字，数字 token（`space-md`）只能在面板里维护、给间距阶梯当参考；没有 token 继承/别名，也没有「改一个 token 预览差异」的对比视图。
   - **分享链接有长度上限**：`MAX_SHARE_LENGTH = 12_000`，超过就返回空串并提示改用顶栏「整站」导出（粗略对应几百个节点的文档）；链接里的文档没有压缩、没有签名，谁拿到链接谁就能读。

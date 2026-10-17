@@ -55,6 +55,53 @@ const view = computed<Record<NodeId, SceneNode>>(() => store.viewNodes as Record
 const vw = computed(() => store.viewport().w)
 const vh = computed(() => store.viewport().h)
 
+/**
+ * 页面网格画在缩放层外面、间距按 zoom 换算：这样 25% 时线距是 2px 也不会糊成一团，
+ * 主网格每 64 设计像素一条（参考实现只有 8px 单层，1440 宽会有 180 条线，噪声太大）。
+ */
+const gridStyle = computed(() => {
+  const minor = 8 * store.zoom
+  const major = 64 * store.zoom
+  return {
+    backgroundSize: `${minor}px ${minor}px, ${minor}px ${minor}px, ${major}px ${major}px, ${major}px ${major}px`,
+  }
+})
+
+/** 多选时给一个整体包围框（ElementView 自己只画各自的描边，画不出这个） */
+const multiBox = computed<Box | null>(() => {
+  if (store.selectedIds.length < 2) return null
+  const boxes = store.selectedIds.map((id) => store.boxes[id]).filter((box): box is Box => Boolean(box))
+  return boxes.length >= 2 ? unionOf(boxes) : null
+})
+
+/**
+ * 被点节点到根的链（含自己、不含根）。
+ * 层级点选规则：第一次点选最外层分区，再点往里钻，点到底再循环回分区；Alt 直接选被点的那个。
+ */
+function pathOf(id: NodeId): NodeId[] {
+  const out: NodeId[] = []
+  const seen = new Set<NodeId>()
+  let cursor: NodeId | null = id
+  while (cursor !== null && !seen.has(cursor)) {
+    seen.add(cursor)
+    const node: SceneNode | undefined = view.value[cursor]
+    if (!node) break
+    out.unshift(node.id)
+    cursor = node.parentId
+  }
+  return out.filter((item) => item !== store.rootId)
+}
+
+function pickTarget(hitId: NodeId, deep: boolean): NodeId {
+  const path = pathOf(hitId)
+  if (path.length === 0) return store.rootId
+  if (deep) return path[path.length - 1]
+  const current = store.primary?.id
+  const at = current ? path.indexOf(current) : -1
+  if (at >= 0) return path[(at + 1) % path.length]
+  return path[0]
+}
+
 function localPoint(clientX: number, clientY: number): { x: number; y: number } {
   const rect = pageRef.value?.getBoundingClientRect()
   const scale = store.zoom
@@ -205,19 +252,30 @@ function onStagePointerDown(event: PointerEvent): void {
     const id = nodeEl.dataset.nodeId as NodeId
     const resolved = docNodeOf(id)
     if (!resolved) return
-    const targetId = resolved.id
-    const node = resolved.node
     const additive = event.shiftKey || event.metaKey || event.ctrlKey
+    // 点根节点等于点空白：根是页面容器，选中它没有可做的事（删它还会把画布删白）
+    if (resolved.id === store.rootId) {
+      store.clearSelection()
+      startMarquee(event)
+      return
+    }
+    const targetId = additive ? resolved.id : pickTarget(resolved.id, event.altKey)
     if (!store.selectedIds.includes(targetId)) store.select(targetId, additive)
     else if (additive) store.select(targetId, true)
+    const node = store.nodes[targetId] ?? resolved.node
     if (node.meta.locked) return
     beginMove(event, node)
     attach()
     return
   }
 
-  // 空白处：框选
+  // 空白处：清空选中并框选
   store.clearSelection()
+  startMarquee(event)
+}
+
+/** 空白/根节点上的拖拽 = 框选 */
+function startMarquee(event: PointerEvent): void {
   const point = localPoint(event.clientX, event.clientY)
   interaction = {
     mode: 'marquee',
@@ -331,10 +389,20 @@ function onStagePointerUp(event: PointerEvent): void {
   if (!interaction) return
   if (interaction.mode === 'marquee' && marquee.value) {
     const box = marquee.value
-    const hit = Object.values(view.value)
-      .filter((node) => node.id !== store.rootId && !node.meta.hidden && node.parentId === store.rootId)
-      .filter((node) => rectsIntersect(rectOf(node), box))
-      .map((node) => node.id)
+    const hitIds = new Set(
+      Object.values(view.value)
+        .filter((node) => node.id !== store.rootId && !node.meta.hidden && rectsIntersect(rectOf(node), box))
+        .map((node) => node.id),
+    )
+    // 命中祖先就只选祖先：容器被框住时不要再把它的子元素各选一遍（参考实现是扁平模型，我们是树）
+    const hit = [...hitIds].filter((id) => {
+      let cursor = view.value[id]?.parentId ?? null
+      while (cursor !== null && cursor !== store.rootId) {
+        if (hitIds.has(cursor)) return false
+        cursor = view.value[cursor]?.parentId ?? null
+      }
+      return true
+    })
     if (hit.length > 0) store.selectMany(hit)
   }
   const wasActive = interaction.active
@@ -409,12 +477,41 @@ onBeforeUnmount(() => {
     @contextmenu.prevent="onStageContextMenu"
   >
     <div
+      v-if="store.selectionPath.length > 0"
+      class="canvas-breadcrumb"
+      data-role="selection-path"
+      @pointerdown.stop
+    >
+      <button
+        v-for="node in store.selectionPath"
+        :key="node.id"
+        type="button"
+        class="canvas-breadcrumb__chip"
+        :class="{ 'is-current': node.id === store.primary?.id }"
+        data-role="selection-ancestor"
+        :data-ancestor-id="node.id"
+        @click="store.select(node.id)"
+      >
+        {{ node.meta.name || node.type }}
+      </button>
+    </div>
+    <div
       ref="pageRef"
       class="canvas-page"
       :style="{ width: `${vw * store.zoom}px`, height: `${vh * store.zoom}px` }"
     >
+      <div class="canvas-page__grid" data-role="canvas-grid" :style="gridStyle" />
       <div class="canvas-page__inner" :style="{ width: `${vw}px`, height: `${vh}px`, transform: `scale(${store.zoom})` }">
         <ElementView :node="root" :nodes="view" :scale="store.zoom" @edit-text="startEdit" />
+
+        <div
+          v-if="multiBox"
+          class="canvas-multibox"
+          data-role="multi-box"
+          :style="{ left: `${multiBox.x}px`, top: `${multiBox.y}px`, width: `${multiBox.w}px`, height: `${multiBox.h}px` }"
+        >
+          <span class="canvas-multibox__label">{{ store.selectedIds.length }} 个元素</span>
+        </div>
 
         <span
           v-for="(guide, index) in guides"

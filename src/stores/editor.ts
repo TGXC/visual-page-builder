@@ -188,6 +188,25 @@ export const useEditorStore = defineStore('editor', () => {
 
   const selection = computed(() => selectedIds.value.map((id) => resolvedNodes.value[id]).filter(Boolean) as SceneNode[])
   const primary = computed<SceneNode | null>(() => selection.value[0] ?? null)
+  /**
+   * 主选中的祖先链（从根的下级开始、含自己）——画布左上角的面包屑用。
+   * 层级点选与 Esc 选父级也靠它，免得用户在深层容器里点不出来。
+   */
+  const selectionPath = computed<SceneNode[]>(() => {
+    const start = selectedIds.value[0]
+    if (!start) return []
+    const out: SceneNode[] = []
+    const seen = new Set<NodeId>()
+    let cursor: NodeId | null = start
+    while (cursor !== null && cursor !== rootId.value && !seen.has(cursor)) {
+      seen.add(cursor)
+      const node: SceneNode | undefined = nodes.value[cursor]
+      if (!node) break
+      out.unshift(node)
+      cursor = node.parentId
+    }
+    return out
+  })
   /** 主选中的原生节点（覆盖标记要读它自己的 overrides，有效节点里 overrides 是空的） */
   const primaryRaw = computed<SceneNode | null>(() => {
     const id = selectedIds.value[0]
@@ -417,9 +436,31 @@ export const useEditorStore = defineStore('editor', () => {
 
   function removeSelection(): void {
     if (selectedIds.value.length === 0) return
-    const patches = removePatches(activePage.value, selectedIds.value)
+    const exists = selectedIds.value.filter((id) => Boolean(nodes.value[id]))
+    // 根节点是页面容器，删掉整页白屏；锁定元素是用户明确保护过的，两者都不删。
+    const protectedIds = exists.filter((id) => id === rootId.value || nodes.value[id].meta.locked)
+    const removable = exists.filter((id) => !protectedIds.includes(id))
+    if (removable.length === 0) {
+      pushToast(protectedIds.includes(rootId.value) ? '根节点不能删除' : '元素已锁定，先解锁再删除', 'error')
+      return
+    }
+    const patches = removePatches(activePage.value, removable)
     if (patches.length === 0) return
-    commit(`删除 ${selectedIds.value.length} 个元素`, patches)
+    commit(`删除 ${removable.length} 个元素`, patches)
+    if (protectedIds.length > 0) {
+      pushToast(`已跳过 ${protectedIds.length} 个锁定元素${protectedIds.includes(rootId.value) ? '（含根节点）' : ''}`)
+    }
+  }
+
+  /** Esc / 面包屑的「上一层」：主选中换成它的父分区（父是根时停住） */
+  function selectParent(): void {
+    const current = primary.value
+    if (!current) return
+    if (!current.parentId || current.parentId === rootId.value) {
+      pushToast('已经是顶层元素')
+      return
+    }
+    select(current.parentId)
   }
 
   function duplicateSelection(): void {
@@ -656,7 +697,7 @@ export const useEditorStore = defineStore('editor', () => {
     }
     docNext.pages = [...docNext.pages, page]
     docNext.activePageId = id
-    setDoc(docNext, `新建页面 ${page.name}`)
+    commitDoc(`新建页面 ${page.name}`, docNext)
   }
 
   function renamePage(id: string, name: string): void {
@@ -664,7 +705,7 @@ export const useEditorStore = defineStore('editor', () => {
     const page = docNext.pages.find((item) => item.id === id)
     if (!page) return
     page.name = name.slice(0, 40) || '未命名页面'
-    setDoc(docNext, '重命名页面')
+    commitDoc('重命名页面', docNext)
   }
 
   function removePage(id: string): void {
@@ -675,7 +716,7 @@ export const useEditorStore = defineStore('editor', () => {
     const docNext = JSON.parse(JSON.stringify(doc.value)) as Doc
     docNext.pages = docNext.pages.filter((page) => page.id !== id)
     if (docNext.activePageId === id) docNext.activePageId = docNext.pages[0].id
-    setDoc(docNext, '删除页面')
+    commitDoc('删除页面', docNext)
     selectedIds.value = []
   }
 
@@ -687,7 +728,10 @@ export const useEditorStore = defineStore('editor', () => {
     selectedIds.value = []
   }
 
-  /** 页面级变更（加页/改视口/换文档）不走补丁，走「整份替换 + 清空历史」 */
+  /**
+   * 切换页面只换基线、不动历史：视口/页面是「看文档的姿势」，来回切不该淹没撤销栈。
+   * 页面增删、换模板、导入这些真正改文档的动作走 `commitDoc()`（可撤销）。
+   */
   function setDoc(next: Doc, label = '更新文档', keepHistory = false): void {
     if (keepHistory) {
       history.value = { ...history.value, base: next }
@@ -700,7 +744,8 @@ export const useEditorStore = defineStore('editor', () => {
   function loadTemplate(id: string): boolean {
     const next = createFromTemplate(id)
     if (!next) return false
-    setDoc(next, `载入模板 ${id}`)
+    // 换模板可撤销：否则「载错模板 / 删错了」只能靠刷新页面（M9 用户反馈）。
+    commitDoc(`载入模板 ${id}`, next)
     selectedIds.value = []
     pushToast(`已载入模板：${id}`)
     return true
@@ -1319,6 +1364,8 @@ export const useEditorStore = defineStore('editor', () => {
     viewport,
     select,
     selectNext,
+    selectParent,
+    selectionPath,
     selectMany,
     clearSelection,
     insertComponent,

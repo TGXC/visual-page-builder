@@ -27,6 +27,19 @@ const menu = ref<{ x: number; y: number } | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const stageWidth = ref(1200)
 
+/** 右侧栏改成页签：原来七块面板竖着堆，滚动条长得看不到底（M9 反馈的画布外排版问题） */
+type SideTab = 'props' | 'layout' | 'theme' | 'ai' | 'versions' | 'share' | 'code'
+const sideTabs: { id: SideTab; label: string }[] = [
+  { id: 'props', label: '属性' },
+  { id: 'layout', label: '布局' },
+  { id: 'theme', label: '主题' },
+  { id: 'ai', label: 'AI' },
+  { id: 'versions', label: '历史' },
+  { id: 'share', label: '分享' },
+  { id: 'code', label: '代码' },
+]
+const sideTab = ref<SideTab>('props')
+
 const viewportLabel = computed(() => store.viewport().label)
 
 function isTyping(target: EventTarget | null): boolean {
@@ -108,7 +121,9 @@ function onKeydown(event: KeyboardEvent): void {
     return
   }
   if (event.key === 'Escape') {
-    store.clearSelection()
+    // 有选中就退一层（父分区），再按一次才清空 —— 深层容器里不用再去点面包屑
+    if (store.selectedIds.length > 0) store.selectParent()
+    else store.clearSelection()
     menu.value = null
   }
 }
@@ -270,13 +285,29 @@ onBeforeUnmount(() => {
       </section>
 
       <aside class="editor-side editor-side--right">
-        <PropPanel />
-        <LayoutPanel />
-        <ThemePanel />
-        <AiPanel />
-        <VersionPanel />
-        <SharePanel />
-        <CodePanel />
+        <nav class="side-tabs">
+          <button
+            v-for="tab in sideTabs"
+            :key="tab.id"
+            type="button"
+            class="side-tab"
+            :class="{ 'is-active': sideTab === tab.id }"
+            :data-role="`side-tab-${tab.id}`"
+            @click="sideTab = tab.id"
+          >
+            {{ tab.label }}
+          </button>
+        </nav>
+        <div class="side-body">
+          <!-- 全部 v-show 保持挂载：面板里有 AI 候选、代码预览这些状态，切页签不该丢 -->
+          <PropPanel v-show="sideTab === 'props'" />
+          <LayoutPanel v-show="sideTab === 'layout'" />
+          <ThemePanel v-show="sideTab === 'theme'" />
+          <AiPanel v-show="sideTab === 'ai'" />
+          <VersionPanel v-show="sideTab === 'versions'" />
+          <SharePanel v-show="sideTab === 'share'" />
+          <CodePanel v-show="sideTab === 'code'" />
+        </div>
       </aside>
     </div>
 

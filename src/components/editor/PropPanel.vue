@@ -291,6 +291,10 @@ function copyStyle(): void {
         <span class="prop-row__label">{{ key }}</span>
         <input class="prop-input" :data-prop="key" :value="unknownValue(key)" @input="setContent(key, $event)">
       </label>
+
+      <button type="button" class="danger-button" data-role="delete-selection" @click="store.removeSelection()">
+        删除这个元素
+      </button>
     </div>
   </section>
 </template>

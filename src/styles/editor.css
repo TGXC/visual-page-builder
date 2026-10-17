@@ -125,6 +125,48 @@ button {
 
 .editor-side--right {
   border-left: 1px solid var(--studio-border, #e2e8f0);
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* 右侧栏页签：属性 / 布局 / 主题 / AI / 历史 / 分享 / 代码 */
+.side-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 6px 0;
+  border-bottom: 1px solid var(--studio-border, #e2e8f0);
+}
+
+.side-tab {
+  padding: 5px 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.side-tab:hover {
+  background: var(--studio-bg, #f1f5f9);
+  color: var(--studio-text, #0f172a);
+}
+
+.side-tab.is-active {
+  background: var(--studio-primary-weak, #dbeafe);
+  color: var(--studio-primary, #2563eb);
+  font-weight: 600;
+}
+
+.side-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
 }
 
 .editor-center {
@@ -209,6 +251,7 @@ button {
 
 .palette-item:hover {
   border-color: var(--studio-primary, #2563eb);
+  background: var(--studio-primary-weak, #dbeafe);
   color: var(--studio-primary, #2563eb);
 }
 
@@ -262,9 +305,10 @@ button {
 .layer-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 4px;
-  border-radius: var(--studio-radius-sm, 6px);
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -275,6 +319,9 @@ button {
 .layer-row--selected {
   background: var(--studio-primary-weak, #dbeafe);
   color: var(--studio-primary, #2563eb);
+  outline: 1px solid var(--studio-primary, #2563eb);
+  outline-offset: -1px;
+  font-weight: 500;
 }
 
 .layer-row--hidden {
@@ -379,25 +426,76 @@ button {
   position: relative;
   flex: 1;
   min-height: 0;
-  padding: 24px;
+  padding: 32px 24px 24px;
   overflow: auto;
-  background:
-    linear-gradient(45deg, #e2e8f0 25%, transparent 25%) 0 0 / 16px 16px,
-    linear-gradient(-45deg, #e2e8f0 25%, transparent 25%) 0 8px / 16px 16px,
-    var(--studio-bg, #f1f5f9);
+  background: var(--studio-bg, #eef2f7);
 }
 
 .canvas-page {
   position: relative;
   margin: 0 auto;
   background: #fff;
-  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 6%),
+    0 12px 32px rgb(15 23 42 / 14%);
   transform-origin: top center;
+}
+
+/* 网格层：不参与缩放，间距由 CanvasStage 按 zoom 写成 background-size */
+.canvas-page__grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(226 232 240 / 70%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(226 232 240 / 70%) 1px, transparent 1px),
+    linear-gradient(rgb(203 213 225 / 80%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(203 213 225 / 80%) 1px, transparent 1px);
+  background-repeat: repeat;
 }
 
 .canvas-page__inner {
   position: absolute;
   inset: 0;
+}
+
+/* 面包屑：深层容器里点选不出东西时的逃生通道 */
+.canvas-breadcrumb {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  margin-bottom: 8px;
+  padding: 4px;
+  background: rgb(255 255 255 / 92%);
+  border: 1px solid var(--studio-border, #e2e8f0);
+  border-radius: var(--studio-radius-sm, 6px);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
+}
+
+.canvas-breadcrumb__chip {
+  padding: 3px 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.canvas-breadcrumb__chip:hover {
+  background: var(--studio-bg, #f1f5f9);
+  color: var(--studio-text, #0f172a);
+}
+
+.canvas-breadcrumb__chip.is-current {
+  background: var(--studio-primary-weak, #dbeafe);
+  color: var(--studio-primary, #2563eb);
+  font-weight: 600;
 }
 
 .canvas-el {
@@ -428,7 +526,16 @@ button {
 }
 
 .canvas-el--selected {
-  outline: 1px solid var(--studio-primary, #2563eb);
+  outline: 2px solid var(--studio-primary, #2563eb);
+  outline-offset: -2px;
+}
+
+.canvas-el--selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 85%);
+  pointer-events: none;
 }
 
 .canvas-el--locked {
@@ -451,9 +558,10 @@ button {
   position: absolute;
   width: 8px;
   height: 8px;
-  background: #fff;
-  border: 1px solid var(--studio-primary, #2563eb);
+  background: var(--studio-primary, #2563eb);
+  border: 1px solid #fff;
   border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(37 99 235 / 35%);
 }
 
 .canvas-handle[data-handle='nw'] { top: -4px; left: -4px; cursor: nwse-resize; }
@@ -481,7 +589,11 @@ button {
 
 .canvas-guide {
   position: absolute;
-  background: #f43f5e;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--studio-danger, #ef4444) 0 4px,
+    transparent 4px 8px
+  );
   pointer-events: none;
 }
 
@@ -495,6 +607,11 @@ button {
   left: 0;
   right: 0;
   height: 1px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--studio-danger, #ef4444) 0 4px,
+    transparent 4px 8px
+  );
 }
 
 .canvas-marquee {
@@ -502,6 +619,25 @@ button {
   background: rgb(37 99 235 / 12%);
   border: 1px solid var(--studio-primary, #2563eb);
   pointer-events: none;
+}
+
+/* 多选包围框：每个元素自己只画描边，整体范围靠这一层 */
+.canvas-multibox {
+  position: absolute;
+  border: 1px dashed var(--studio-primary, #2563eb);
+  pointer-events: none;
+}
+
+.canvas-multibox__label {
+  position: absolute;
+  top: -20px;
+  left: -1px;
+  padding: 1px 6px;
+  background: var(--studio-primary, #2563eb);
+  color: #fff;
+  font-size: 10px;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 .canvas-drop-hint {
