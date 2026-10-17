@@ -17,7 +17,10 @@ import PageTabs from './PageTabs.vue'
 import PalettePanel from './PalettePanel.vue'
 import PropPanel from './PropPanel.vue'
 import LayoutPanel from './LayoutPanel.vue'
+import SharePanel from './SharePanel.vue'
 import StatusBar from './StatusBar.vue'
+import ThemePanel from './ThemePanel.vue'
+import VersionPanel from './VersionPanel.vue'
 
 const store = useEditorStore()
 const menu = ref<{ x: number; y: number } | null>(null)
@@ -88,6 +91,12 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Delete' || event.key === 'Backspace') {
     event.preventDefault()
     store.removeSelection()
+    return
+  }
+  if (event.altKey && event.key.startsWith('Arrow')) {
+    // M8 / E8：键盘也能换选中项（Alt + 方向键在整棵树里前后走）
+    event.preventDefault()
+    store.selectNext(event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1)
     return
   }
   if (event.key.startsWith('Arrow')) {
@@ -182,6 +191,8 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('wheel', onWheel, { passive: false })
   stageWidth.value = window.innerWidth || 1200
+  // 带 `#doc=` 的分享链接：打开就把文档载入（可撤销）
+  store.loadSharedFromLocation()
 })
 
 onBeforeUnmount(() => {
@@ -261,7 +272,10 @@ onBeforeUnmount(() => {
       <aside class="editor-side editor-side--right">
         <PropPanel />
         <LayoutPanel />
+        <ThemePanel />
         <AiPanel />
+        <VersionPanel />
+        <SharePanel />
         <CodePanel />
       </aside>
     </div>

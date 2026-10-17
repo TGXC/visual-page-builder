@@ -1042,3 +1042,76 @@ button {
   border-radius: 4px;
   background: #f8fafc;
 }
+
+/* ── M8：主题 token / 版本历史 / 分享 ───────────────────────────────── */
+.theme-tokens,
+.version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.theme-token {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--studio-border, #e2e8f0);
+  padding-top: 4px;
+  font-size: 11px;
+}
+
+.theme-token:first-child {
+  border-top: 0;
+}
+
+.theme-token__name {
+  flex: 0 0 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.theme-token__value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.theme-missing {
+  color: var(--studio-warning, #b45309);
+}
+
+.version-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--studio-border, #e2e8f0);
+  padding-top: 4px;
+  font-size: 11px;
+}
+
+.version-item:first-child {
+  border-top: 0;
+}
+
+.version-item__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.version-item__meta {
+  flex: 0 0 auto;
+  color: var(--studio-muted, #64748b);
+}
+
+.page-tabs__template {
+  max-width: 96px;
+  height: 22px;
+  font-size: 11px;
+}

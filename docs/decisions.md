@@ -420,5 +420,54 @@
 
 **代价**：降级结果与真实模型结果混在同一个候选列表里，只能靠文案与 `aiMessage` 的前缀区分；`isOffline()` 只看 `navigator.onLine`，代理层断网（onLine 仍为 true）会走 provider 失败分支（结果一致，但提示文案是「供应商不可用」）。
 
+## D51：主题 token 用 `$name` 引用、导出成 CSS 变量，只覆盖 4 个颜色字段
+
+**决定**：`src/core/theme/index.ts` 定 `TOKEN_PREFIX = '$'`；样式里写 `$color-primary`，**导出**时 `generatePageCss` 用 `paintOf(value, { tokens, cssVars: true })` 输出 `var(--color-primary)`，并在页面真的用到 token 时把 `themeVariablesCss(doc.theme)`（`:root{--a:b;…}`，键排序）插在 `BASE_CSS` 之后；**画布**走 `inlineStyle(node, backgroundImage, box, tokens)` 解析成具体颜色（`resolveTokenValue`）。可引用的字段限 `bg / color / borderColor / shadowColor` 四个字符串字段。
+
+**理由**：`StyleSpec` 的数字字段（`fontSize`/`radius`/`lineHeight`…）是 `number`，改成联合类型会波及 layout / codegen / canvas 全链路，而 L7 的验收判据正是「改主题色 → 所有引用 token 的元素同步变色」。只在 `pageUsesTokens(page)` 时才注入 `:root`，既有导出快照因此一个字节都不用改。
+
+**代价**：数字 token（`space-md: 16`、`radius-lg: 16`）只能在主题面板里维护、供间距阶梯与默认值参考，元素样式里写不出来；`missingTokenRefs()` 只在面板里提醒，导出时未定义的引用会变成空值。
+
+## D52：几个文本/颜色工具先自己写，不引依赖
+
+**决定**：`core/png/index.ts` 自写 PNG（IHDR/RGB、IDAT 用 zlib stored 块、IEND，CRC-32 复用 `core/zip`），`core/share/index.ts` 自写 base64url 编解码，`core/theme` 自写 token 解析，`core/tree` 自加 `childrenIndex()`。
+
+**理由**：PLAN 的硬约束是「不引拖拽库与 UI 组件库」，且这几个能力都是纯逻辑、几十行就能写完、能被单测完全覆盖；引一个 PNG 库或压缩库会让 `core/` 的纯函数边界变模糊。
+
+**代价**：PNG 不压缩（320×200 占位图 base64 约 192KB），分享链接有 `MAX_SHARE_LENGTH = 12_000` 上限，主题 token 没有继承/别名。
+
+## D53：性能瓶颈是「每个节点扫全表」，不是布局
+
+**决定**：在 `core/tree` 加 `childrenIndex(nodes)` / `childrenFrom(index, parentId)`（一次性建「父→子」索引，顺序与 `childrenOf` 一致），`core/codegen` 的 `renderNode`/`generateBodyHtml` 改用它；`core/components` 的 `renderContext()` 把 `children` 从即时求值改成 **getter 懒计算**（导出路径根本不读它，只有画布的「空容器提示」会读）；`core/site` 的 `buildSite()` 复用激活页已经算好的 standalone HTML 当作 `index.html`。
+
+**理由**：E7 首跑 1000 节点导出中位数 **898.66ms**（HTML 292.75ms、整站 568.00ms、CSS 23.34ms、ZIP 3.98ms），而 `computeLayout` 只要 2.79ms —— 慢的是 `childrenOf`/`childNodes` 在每个节点上做一次全表扫描（O(n²)）。三处改完中位数 **73.31ms**（CSS 22.53 / HTML 24.20 / 整站 23.52 / ZIP 3.84），12 倍提升，导出字节数完全不变（CSS 243848 B、HTML 305481 B、ZIP 375581 B）。
+
+**代价**：多了一份索引对象（`generateBodyHtml` 每次调用建一次，1000 节点约几十微秒）；`ComponentRenderContext.children` 从「字段」变成「getter」，任何把它当数据快照存下来的代码会每次拿到新数组（当前没有这样的调用方）。
+
+## D54：版本历史与分享链接都只落本机/地址栏，不设后端
+
+**决定**：`core/versions` 把带名字的快照存 `localStorage['studio.versions.v1']`（最多 20 条，最新在前，`restoreVersion()` 返回深拷贝）；`core/share` 把整份文档编码进 `#doc=`（`shareUrl(doc, base)`，超过 12000 字符返回空串，界面提示改用整站导出）；`EditorShell.onMounted` 调 `store.loadSharedFromLocation()`，有 `#doc=` 就载入。回滚与载入都走 `commitDoc()`（**文档级历史条目**，D40），所以两者都能撤销。
+
+**理由**：M8 要求「分享/发布 = 导出静态站点 zip 或分享链接；本地导出 + 可选上传」。不做后端就没有账号、配额、隐私问题，静态托管的 zip 仍然是最完整的发布路径；把回滚/载入做成可撤销，用户误点不会丢工作。
+
+**代价**：分享链接只适合中小文档（链接过长会退化成「请用整站导出」）；`localStorage` 在隐私模式下无效（版本保存静默失败并提示）；没有版本 diff 视图、没有云端协作。
+
+## D55：分享片段要能吃完整地址，不只是 `#doc=`
+
+**决定**：`decodeDoc(input)` 先 `input.indexOf('#doc=')` 取片段（找不到才退化成「去掉开头 `#`」），因此粘贴完整地址、`#doc=…`、多个 `#`、裸 base64url 都能解。
+
+**理由**：面板的输入框写的是「粘贴 #doc=… 或完整地址」，而组件测试里 `store.shareLink` 返回的就是完整地址 —— 第一版 `decodeDoc` 只剥开头 `#`，从完整地址里 base64 解出的是垃圾（组件测试报文：载入后文档 id 变成新生成的 `doc_BHW-…`）。修完 `shareUrl` 的产物能直接往输入框里粘。
+
+**代价**：`indexOf` 匹配的是第一个 `#doc=`，地址里若在它之前还有别的 `#doc=`（不可能由本工具生成）会取错位置。
+
+## D56：性能与冒烟的 npm 脚本用「可选垫片」，CI 与沙箱同一条命令
+
+**决定**：新增 `scripts/sandbox-shim.cjs`（存在 `.sandbox/child-process-pipe-shim.cjs` 才 require 它），`test:perf` / `test:smoke` 改成 `node --require ./scripts/sandbox-shim.cjs ./node_modules/vitest/vitest.mjs run --config …`；`.github/workflows/ci.yml` 增加 `npm test`、`npm run test:perf`、`npm run test:smoke` 与 dist 产物上传。
+
+**理由**：本机 DSH 沙箱禁止带管道的 `child_process.spawn`（Vite 在 Windows 上探测网络驱动器 → `spawn EPERM`），但 `.sandbox` 已被 gitignore，CI 上不存在这个文件。垫片做存在性判断后，两个环境跑的是同一条命令，README 里的验收命令不再分环境。
+
+**代价**：多了一个 `scripts/` 目录与一层间接（排查 CI 失败时要记得垫片在 CI 上是空操作）。
+
+
 
 

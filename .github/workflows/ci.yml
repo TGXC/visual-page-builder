@@ -22,8 +22,23 @@ jobs:
       - name: 代码检查
         run: npm run lint
 
-      - name: 单元测试 + 覆盖率（core/ 阈值 90%）
+      - name: 单元 / 组件测试
+        run: npm test
+
+      - name: 覆盖率（core/ 阈值 90%）
         run: npm run coverage
 
       - name: 类型检查 + 生产构建
         run: npm run build
+
+      - name: 性能基准（1000 节点：布局 < 8ms、导出 < 1s）
+        run: npm run test:perf
+
+      - name: 导出冒烟（解压即用的静态站点）
+        run: npm run test:smoke
+
+      - name: 保留构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-dist
+          path: dist

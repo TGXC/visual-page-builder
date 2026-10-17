@@ -227,7 +227,11 @@ export function renderContext(node: SceneNode, nodes: Record<NodeId, SceneNode>)
   return {
     node,
     nodes,
-    children: childNodes(node, nodes),
+    // 懒计算（M8 性能）：`childNodes` 要扫描整张节点表，导出 1000 节点时每个节点都算一次
+    // 会退化成 O(n²)；导出路径根本不读 children，只有画布的「空容器提示」会读。
+    get children(): SceneNode[] {
+      return childNodes(node, nodes)
+    },
     label: raw(node, 'text'),
     sub: raw(node, 'sub'),
     placeholder: raw(node, 'placeholder'),

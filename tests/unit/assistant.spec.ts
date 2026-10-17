@@ -177,4 +177,22 @@ describe('规则式检查（AI3）', () => {
     expect(findPage(doc, 'nope')?.id).toBe('page_1')
     expect(findPage(doc)?.id).toBe('page_1')
   })
+
+  it('M8 表单可访问性：没有 label 也没有文案的控件报 missing-label，且有修复补丁', () => {
+    const doc = pageDoc([
+      root(),
+      makeNode({ id: 'in1', type: 'input', parentId: 'root', order: 0, props: {}, meta: { name: '邮箱输入框', hidden: false, locked: false }, overrides: { mobile: { hidden: true } } }),
+      makeNode({ id: 'in2', type: 'select', parentId: 'root', order: 1, props: { label: '城市' }, overrides: { mobile: { hidden: true } } }),
+      makeNode({ id: 'in3', type: 'textarea', parentId: 'root', order: 2, props: { text: '备注' }, overrides: { mobile: { hidden: true } } }),
+      makeNode({ id: 'r1', type: 'rect', parentId: 'root', order: 3 }),
+    ])
+
+    const issues = auditDoc(doc, 'page_1').filter((issue) => issue.kind === 'missing-label')
+    expect(issues.map((issue) => issue.id)).toEqual(['missing-label:in1'])
+    expect(issues[0]!.fixLabel).toContain('邮箱输入框')
+    expect(issues[0]!.patches.length).toBe(1)
+
+    const fixed = applyPatches(doc, issues[0]!.patches)
+    expect(auditDoc(fixed, 'page_1').filter((issue) => issue.kind === 'missing-label')).toEqual([])
+  })
 })

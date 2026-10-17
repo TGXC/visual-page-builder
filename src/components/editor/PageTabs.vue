@@ -2,12 +2,18 @@
 /** 多页面标签：切换 / 新增 / 删除 / 双击改名 */
 import { nextTick, ref } from 'vue'
 import type { PageId } from '@/core/schema/types'
+import { TEMPLATES } from '@/core/templates'
 import { useEditorStore } from '@/stores/editor'
 
 const store = useEditorStore()
 const renamingId = ref<PageId | null>(null)
 const renameValue = ref('')
 const renameInput = ref<HTMLInputElement | null>(null)
+const templateId = ref(TEMPLATES[0]?.id ?? '')
+
+function addFromTemplate(): void {
+  store.addPageFromTemplate(templateId.value)
+}
 
 async function startRename(id: PageId, name: string): Promise<void> {
   renamingId.value = id
@@ -62,5 +68,9 @@ function commitRename(): void {
       </div>
     </div>
     <button type="button" class="page-tabs__add icon-button" data-role="add-page" title="新增页面" @click="store.addPage()">＋</button>
+    <select v-model="templateId" class="editor-input page-tabs__template" data-role="template-select" title="从模板新建页面">
+      <option v-for="template in TEMPLATES" :key="template.id" :value="template.id">{{ template.label }}</option>
+    </select>
+    <button type="button" class="page-tabs__add icon-button" data-role="template-add" title="从模板新建页面" @click="addFromTemplate">模板＋</button>
   </nav>
 </template>

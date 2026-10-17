@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TEMPLATES, createFromTemplate } from '@/core/templates'
+import { TEMPLATES, createFromTemplate, pageFromTemplate } from '@/core/templates'
 import { generateHtml } from '@/core/codegen'
 import { canonicalNodes, childrenOf } from '@/core/tree'
 import { normalizeDoc } from '@/core/schema/normalize'
@@ -79,5 +79,32 @@ describe('templates：模板库', () => {
         expect(node.layout.position.y + (node.layout.size.h.value ?? 0)).toBeLessThanOrEqual(page.viewport.h + 1)
       }
     }
+  })
+
+  it('M8 从模板新建页面：追加一页、节点 id 全换新、可导出、重名自动加序号', () => {
+    const base = createFromTemplate('login')!
+    const first = pageFromTemplate(base, 'landing')!
+    expect(first.doc.pages).toHaveLength(2)
+    expect(first.doc.activePageId).toBe(first.pageId)
+
+    const oldIds = new Set(Object.keys(base.pages[0].nodes))
+    const newPage = first.doc.pages[1]!
+    for (const id of Object.keys(newPage.nodes)) expect(oldIds.has(id)).toBe(false)
+    expect(newPage.nodes[newPage.root]).toBeDefined()
+    expect(newPage.nodes[newPage.root]!.parentId).toBeNull()
+    // 每个非根节点都能找到父级（id 重映射没漏）
+    for (const node of Object.values(newPage.nodes)) {
+      if (node.id === newPage.root) continue
+      expect(newPage.nodes[node.parentId as string]).toBeDefined()
+    }
+    expect(generateHtml(first.doc, first.pageId)).toContain('<!DOCTYPE html>')
+
+    // 同一模板再来一次：页面名自动加序号、id 仍然不重复
+    const second = pageFromTemplate(first.doc, 'landing')!
+    expect(second.doc.pages.map((page) => page.name)).toEqual(['登录', '首页', '首页 2'])
+    const allIds = second.doc.pages.flatMap((page) => Object.keys(page.nodes))
+    expect(new Set(allIds).size).toBe(allIds.length)
+
+    expect(pageFromTemplate(base, 'nope')).toBeNull()
   })
 })

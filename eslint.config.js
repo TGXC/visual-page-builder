@@ -69,6 +69,12 @@ export default tseslint.config(
     },
   },
   {
+    // 本机沙箱垫片是 CommonJS（`node --require` 只吃 CJS），允许 require
+    files: ['scripts/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
     files: ['tests/**/*.ts'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',

@@ -43,7 +43,9 @@ export function buildSite(doc: Doc, boxes?: Record<NodeId, Box>): SiteFile[] {
   if (!active || doc.pages.length === 0) return files
   const slugs = slugsOf(doc)
 
-  files.push({ path: 'index.html', content: generateStandaloneHtml(doc, active.id, boxes) })
+  // index.html 就是激活页的拷贝：算一次两处复用（M8 性能：整站导出不再重复渲染激活页）
+  const activeHtml = generateStandaloneHtml(doc, active.id, boxes)
+  files.push({ path: 'index.html', content: activeHtml })
   files.push({ path: 'base.css', content: BASE_CSS })
 
   const pages: Page[] = doc.pages
@@ -51,7 +53,8 @@ export function buildSite(doc: Doc, boxes?: Record<NodeId, Box>): SiteFile[] {
     const slug = slugs.get(page.id) ?? pageSlug(page, index)
     // 传进来的 boxes 只对当前激活页有效（调用方只算了那一页），其余页让 codegen 自己算
     const pageBoxes = page.id === active.id ? boxes : undefined
-    files.push({ path: `${slug}.html`, content: generateStandaloneHtml(doc, page.id, pageBoxes) })
+    const html = page.id === active.id ? activeHtml : generateStandaloneHtml(doc, page.id, pageBoxes)
+    files.push({ path: `${slug}.html`, content: html })
     files.push({ path: `${slug}.css`, content: generatePageCss(doc, page.id, pageBoxes) })
   })
 

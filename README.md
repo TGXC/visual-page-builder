@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）、M8（收尾：主题 token + 版本历史 + 分享发布 + 可访问性 + 性能预算 + CI）已完成 —— PLAN.md 的 M0→M8 全部走完。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -154,6 +154,23 @@ M7 的判据是「**AI 只出候选，用户点了才落库；不配 key 也全�
 
 PLAN 验收「Mock provider 单测（候选应用、组件注册）+ 组件测试（断网降级文案）」对应上表 1/2/3/6；真实模型效果需要用户自己的 key，本仓库交付的证据全部来自 Mock / 规则助手。
 
+## M8 已经做了什么：收尾（主题 / 版本 / 分享 / 可访问性 / 性能 / CI）
+
+M8 的判据来自功能文档 L7 + E7 + E8：「**改主题色 → 所有引用 token 的元素同步变色；回滚到「改版前」版本 → 文档逐字节一致**」「**1000 节点导出 < 1s、整树布局 < 8ms**」「**键盘可完成选择/移动，导出 HTML 能校验对比度/alt/label**」：
+
+| # | 能力 | 实现 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 主题 token（L7） | `src/core/theme`：样式里写 `$color-primary`，导出成 `var(--color-primary)` + `:root{}`（只在页面真的用到 token 时注入），画布用 `inlineStyle(…, tokens)` 解析成具体颜色；面板可增删改 token，未定义的引用会提示 | `tests/unit/theme.spec.ts`（10）、`tests/component/m8.spec.ts`（改 token 值 → 同一份 CSS 变量一起变） |
+| 2 | 从模板新建页面（L6） | `pageFromTemplate(doc, id)`：把 6 套模板之一的第一页并进当前文档，节点 id 加页面前缀防撞、重名自动加序号；页面标签栏里选模板 + 「模板＋」按钮 | `tests/unit/templates.spec.ts`（11）、`component/m8.spec.ts` |
+| 3 | 版本历史（L6） | `src/core/versions`：带名字的快照存本机（最多 20 条），`restoreVersion()` 返回深拷贝；回滚走**文档级历史条目**（D40），所以回滚本身也能撤销 | `tests/unit/versions.spec.ts`（7）、`component/m8.spec.ts`（回滚后 JSON 逐字节一致 + undo） |
+| 4 | 分享 / 发布（L6） | `src/core/share`：整份文档编码进 `#doc=`（自写 base64url，中文/emoji 不依赖 `btoa`），`shareUrl()` 超 12000 字符返回空串并提示改用整站导出；`EditorShell.onMounted` 检测 `#doc=` 自动载入；发布路径仍是顶栏「整站」导出的静态站点 zip | `tests/unit/share.spec.ts`（5）、`component/m8.spec.ts`（能载入完整地址、坏链接不改文档） |
+| 5 | 可访问性（E8） | 助手加第六条规则 `missing-label`（表单类组件既无 `label` 也无文案才报，修复补丁补 `props.label`）；已有对比度 / alt / 断点规则覆盖导出校验；键盘：方向键微调（Shift 10px）+ **Alt + 方向键在整棵树里换选中项** | `tests/unit/assistant.spec.ts`（9）、`component/m8.spec.ts`（Alt+方向键） |
+| 6 | 性能预算（E7） | `tests/perf/export.perf.spec.ts`：1000 节点真实导出链路（CSS + HTML + 整站 + ZIP）取中位数，打印分阶段耗时；优化见 D53（`childrenIndex()` + 懒算 `children` + 复用激活页 HTML） | 见「质量数据」段：导出中位数 **73.31ms**（优化前 898.66ms），布局 2.79ms |
+| 7 | CI 与本地生产预览 | `.github/workflows/ci.yml`：`npm ci` → lint → test → coverage → build → perf → smoke → 上传 dist；`scripts/sandbox-shim.cjs` 让本机沙箱与 CI 跑同一条命令 | `gh` 之外的证据：本地 `npm run build` + `npm run preview` 200 响应（见下） |
+
+M8 的本地生产预览证据：`npm run build` 成功后 `npm run preview -- --port 4173`（见验收日志），用 `Invoke-WebRequest` 取 `/`、`/assets/*.js`、`/assets/*.css` 全部 200。
+
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -197,6 +214,9 @@ src/
 │   ├── components/          # 40 个组件的描述符注册表（插件式，registerComponent + subscribeRegistry + cssFor 作用域样式）
 │   ├── symbols/             # 组件定义 / 实例展开（合成 id）/ 覆盖白名单 / 循环引用检测
 │   ├── assistant/           # audit()：六条规则检查 + 每条的可执行修复补丁 + 迭代式 fixAll()
+│   ├── theme/               # 主题 token：$name 引用解析、:root CSS 变量、分组与未定义提醒
+│   ├── versions/            # 版本历史：带名字的快照（最多 20 条）+ 深拷贝回滚
+│   ├── share/               # 分享链接：#doc= base64url 编解码 + 长度上限
 │   ├── dsl/                 # 受限组件 DSL：validateDsl() 白名单校验 + compileDsl() → ComponentDescriptor + 预览 HTML
 │   ├── png/                 # 自写 PNG 编码器（stored zlib + CRC-32 / ADLER-32），给素材候选出占位图
 │   ├── site/                # buildSite()：静态多页站点（index.html + base.css + 每页 html/css）
@@ -218,40 +238,44 @@ src/
 │   ├── openai.ts            # OpenAI 兼容端点（key 只进请求头）
 │   ├── settings.ts          # apiKey / baseUrl / model → localStorage
 │   └── index.ts             # createAiService()：重试一次、调用记录、失败不落库
-│   ├── openai.ts            # OpenAI 兼容端点（key 只进请求头）
-│   ├── settings.ts          # apiKey / baseUrl / model → localStorage
-│   └── index.ts             # createAiService()：重试一次、调用记录、失败不落库
-├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史 + 布局 + AI
+├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史 + 布局 + AI + 主题/版本/分享
 ├── components/
 │   ├── canvas/              # CanvasStage（指针交互）/ ElementView（单个元素渲染）
-│   └── editor/              # EditorShell / PalettePanel / LayerPanel / PropPanel / LayoutPanel / AiPanel / CodePanel / PageTabs / StatusBar / ContextMenu
+│   └── editor/              # EditorShell / PalettePanel / LayerPanel / PropPanel / LayoutPanel / ThemePanel / AiPanel / VersionPanel / SharePanel / CodePanel / PageTabs / StatusBar / ContextMenu
 ├── styles/                  # editor.css（编辑器三栏）+ tokens.css + base.css
 └── main.ts
+scripts/
+└── sandbox-shim.cjs         # 可选垫片：仅当 .sandbox/child-process-pipe-shim.cjs 存在时加载（沙箱与 CI 同一条命令）
+.github/workflows/ci.yml     # CI：lint → test → coverage → build → perf → smoke → 上传 dist
 tests/
 ├── unit/                    # 纯逻辑单测 + fixtures/（真实 WebBuilder v1 数据夹具）+ __snapshots__/
 ├── component/               # 组件测试（@vue/test-utils + jsdom + helpers.ts 布局垫片）
-├── perf/                    # 1000 节点布局性能（npm run test:perf，独立 config）
+├── perf/                    # 1000 节点布局 + 导出性能（npm run test:perf，独立 config）
 └── smoke/                   # 导出冒烟：真实写盘 studio.html / site.zip，用外部工具校验（npm run test:smoke）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D50）
+├── decisions.md             # 架构决策记录（ADR，D1–D56）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M7）
+## 质量数据（M8，最终）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 45 个文件 / **526 个用例全绿**（含 2 个导出结构快照） |
-| 覆盖率 | 语句 97.36% · 分支 90.63% · 函数 97.67% · 行 99.48%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 由单测与组件测试覆盖但不在 v8 统计里） |
-| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.01ms**（阈值 8ms；同机多轮在 2.6–4.9ms 之间波动） |
+| 测试 | 49 个文件 / **557 个用例全绿**（含 2 个导出结构快照） |
+| 覆盖率 | 语句 97.18% · 分支 90.5% · 函数 97.37% · 行 99.35%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 与 Vue 组件由单测与组件测试覆盖但不在 v8 统计里） |
+| 性能（布局，E7） | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.14ms**（阈值 8ms；同机多轮 2.5–5.2ms） |
+| 性能（导出，E7） | 1000 节点真实导出链路（CSS 243848 B + HTML 305481 B + 整站 + ZIP 375581 B）中位数 **94.43ms**（阈值 1000ms；同机多轮 73–95ms），分阶段 CSS 27.71 / HTML 30.04 / 整站 29.65 / ZIP 5.02ms |
 | 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、`mediaQueries 2`、zip 6905 B，`Expand-Archive` 解压通过 |
-| 构建 | 89 modules；JS 260.19 kB（**gzip 90.21 kB**）；CSS 18.94 kB（gzip 3.87 kB） |
+| 构建 | 98 modules；JS 275.21 kB（**gzip 95.08 kB**）；CSS 19.87 kB（gzip 4.04 kB） |
+| 生产预览 | `npm run build` 后 `npm run preview -- --port 4173`：`/` 200（483 B）、`/assets/index-*.js` 200（275179 B）、`/assets/index-*.css` 200（19873 B） |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
+| CI | `.github/workflows/ci.yml`：lint → test → coverage → build → perf → smoke → 上传 dist |
 
-M7 让包体再涨约 25 kB（gzip +8 kB）：`core/png`（自写 PNG 编码器）、`core/dsl`（受限 DSL 校验与编译）、`src/ai/{text,material,component,usage,offline}.ts` 与面板新区都在编辑器包里；仍然没有引入任何新依赖。
+M8 让包体涨约 15 kB（gzip +5 kB）：`core/theme`、`core/versions`、`core/share` 与三个新面板；仍然没有引入任何新依赖（PNG 与 ZIP 都是自写编码器，见 D52）。
 
-覆盖率在 M7 一度掉到分支 89.67%（低于 90 阈值）——新模块 `core/dsl`（79%）、`core/png`（85%）、`persistence/custom.ts`（70%）的分支没被覆盖。补齐的三类用例：PNG 的颜色越界/非有限尺寸/超过 65535 字节的多 stored 块；DSL 校验的 `props`/`size`/`style`/`children`/`text` 各种坏形状与「无样式节点 `cssFor` 返回空串」；存档在 `localStorage` 抛错（配额满、`SecurityError`、属性 getter 抛错）时的静默降级。
+性能这一轮抓到一个真问题：E7 基准首跑 1000 节点导出中位数 **898.66ms**（离 1s 预算只剩 10%），而布局只要 2.79ms。根因不是布局，是 `childrenOf()`/`childNodes()` 在每个节点上做一次全表扫描（O(n²)）：三处改动（`childrenIndex()` 索引、`renderContext().children` 懒计算、`buildSite()` 复用激活页 HTML）把它压到 **73–95ms**，导出字节数一个都没变（D53）。
+
 
 ## 架构决策
 
@@ -277,6 +301,10 @@ AI 新增页面走文档级历史条目（与补丁条目共用撤销栈）、AI
 M7 新增 D45–D50：文案/素材/生成组件三条增强都是「先出候选、点了才落库」（落库走普通补丁历史，注册沿用 D33 不入文档历史）、
 素材用自写 PNG 编码器（`safeUrl` 放行光栅 dataURL 但拦 SVG）、受限 DSL 编译成普通 `ComponentDescriptor`（category `'custom'` + `cssFor(scope)`）、
 自定义组件 type 必须 ASCII（改名等于换 type）、token 与费用本地估算（优先用供应商 `usage`）、降级是 store 里的兜底调用而不是 provider 伪装。
+M8 新增 D51–D56：主题 token 用 `$name` 引用、导出成 CSS 变量且只覆盖 4 个颜色字段（数字字段改动会波及全链路，所以不上）、
+文本/颜色/PNG/base64 这些小工具一律自写不引依赖、性能瓶颈是「每个节点扫全表」而不是布局（`childrenIndex()` + 懒算 `children` + 复用激活页 HTML 把 1000 节点导出从 898.66ms 压到 73–80ms）、
+版本历史与分享链接只落本机/地址栏（回滚与载入都走文档级历史条目因此可撤销）、分享片段要能吃完整地址（`indexOf('#doc=')`）、
+perf/smoke 脚本用「存在性判断垫片」让沙箱与 CI 跑同一条命令。
 
 ## 本机开发环境的四个坑（Windows + 受限沙箱）
 
@@ -289,7 +317,13 @@ M7 新增 D45–D50：文案/素材/生成组件三条增强都是「先出候�
 
 ## 已知缺口 / 未做
 
-- **M8 尚未实现**：性能专项与可访问性、主题 token 面板、版本历史、分享发布、CI 与部署说明都在 [PLAN.md](PLAN.md) 里。M7 做完的是「AI 只出候选、点了才落库，且不配 key 也全都能用」。
+- **PLAN.md 的 M0–M8 全部完成**：M8 交付了主题 token、从模板新建页面、版本历史、分享链接、可访问性补充规则与键盘选择、性能基准（布局 + 导出）与 CI。下面按里程碑列出仍然存在的取舍与缺口（都是「知道但没做」，不是没发现）。
+- **M8 的取舍与已知缺口**：
+  - **主题 token 只覆盖 4 个颜色字段**（`bg / color / borderColor / shadowColor`）：`fontSize`/`radius`/`lineHeight` 这些数字字段还是普通数字，数字 token（`space-md`）只能在面板里维护、给间距阶梯当参考；没有 token 继承/别名，也没有「改一个 token 预览差异」的对比视图。
+  - **分享链接有长度上限**：`MAX_SHARE_LENGTH = 12_000`，超过就返回空串并提示改用顶栏「整站」导出（粗略对应几百个节点的文档）；链接里的文档没有压缩、没有签名，谁拿到链接谁就能读。
+  - **版本历史是整份文档快照**：最多 20 条且存在本机 `localStorage`，没有 diff 视图、没有云端同步、换浏览器就没了；隐私模式下保存会静默失败（只在 toast 里提示）。
+  - **可访问性是「检查 + 提示」级别**：助手能报对比度 / alt / `label` 关联 / 断点未覆盖，但导出的 HTML 仍是 `<div>` 盒子语义（只有 `button` 与带链接节点是语义标签），没有生成 `<header>/<nav>/<section>` 的大纲映射；键盘支持方向键微调与 Alt+方向键换选中项，没有完整的焦点环与读屏菜单。
+  - **性能数字是本机中位数**：`test:perf` 的阈值（布局 8ms、导出 1s）留了余量，但 CI 机器更慢时仍可能抖动；拖动 60fps 只在浏览器里人工感受，没有自动化的帧率断言。
 - **M7 的取舍与已知缺口**：
   - **候选不落库，刷新即丢**：文案/素材候选只活在 store 内存里（`aiTextCandidates` / `aiMaterialCandidates` / `aiComponentCandidate`），页面刷新或切换项目后要重新生成；只有「应用」与「注册」的结果进文档/存档。
   - **素材是渐变占位图**：`core/png` 按提示词哈希生成竖渐变图（320×200），不是真实配图也没有素材库检索；`MaterialSource` 里的 `'library'` 目前没有实现来源，图说文字只用来填 `alt`。

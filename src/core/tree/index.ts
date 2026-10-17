@@ -14,6 +14,33 @@ export function childrenOf(nodes: Record<NodeId, SceneNode>, parentId: NodeId | 
     .sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id))
 }
 
+/**
+ * 一次性建好「父 → 子」索引（M8 性能：渲染 1000 节点时 `childrenOf` 的
+ * 每次全表扫描会退化成 O(n²)，实测 HTML 生成 293ms → 建索引后个位数毫秒）。
+ * 顺序与 `childrenOf` 完全一致，调用方可以放心替换。
+ */
+export function childrenIndex(nodes: Record<NodeId, SceneNode>): Map<NodeId | null, SceneNode[]> {
+  const index = new Map<NodeId | null, SceneNode[]>()
+  for (const node of Object.values(nodes)) {
+    const key = node.parentId
+    const bucket = index.get(key)
+    if (bucket) bucket.push(node)
+    else index.set(key, [node])
+  }
+  for (const bucket of index.values()) {
+    bucket.sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id))
+  }
+  return index
+}
+
+/** 用索引取同级子节点（`childrenIndex` 建一次，多次复用） */
+export function childrenFrom(
+  index: Map<NodeId | null, SceneNode[]>,
+  parentId: NodeId | null,
+): SceneNode[] {
+  return index.get(parentId) ?? []
+}
+
 export function siblingIds(nodes: Record<NodeId, SceneNode>, parentId: NodeId | null): NodeId[] {
   return childrenOf(nodes, parentId).map((node) => node.id)
 }

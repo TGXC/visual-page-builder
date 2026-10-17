@@ -20,6 +20,7 @@ export type IssueKind =
   | 'spacing'
   | 'size-inconsistent'
   | 'missing-alt'
+  | 'missing-label'
   | 'breakpoint-uncovered'
 
 export interface Issue {
@@ -44,6 +45,19 @@ export const SPACING_SCALE: readonly number[] = [0, 4, 8, 12, 16, 24, 32, 48, 64
 const TEXT_TYPES: ReadonlySet<string> = new Set(['text', 'heading', 'label', 'button', 'link', 'badge', 'alert'])
 /** 需要替代文字的媒体类组件 */
 const MEDIA_TYPES: ReadonlySet<string> = new Set(['image', 'video', 'avatar'])
+/** 需要有可读标签的表单类组件（E8 可访问性） */
+const FORM_TYPES: ReadonlySet<string> = new Set([
+  'input',
+  'textarea',
+  'select',
+  'checkbox',
+  'radio',
+  'switch',
+  'slider',
+  'date',
+  'number',
+  'file',
+])
 
 const AA_NORMAL = 4.5
 const AA_LARGE = 3
@@ -388,8 +402,30 @@ function altIssues(page: Page): Issue[] {
   return issues
 }
 
-/** 断点未覆盖：启用的窄断点下整页一条覆盖都没有（导出会照搬桌面布局） */
-function breakpointIssues(doc: Doc, page: Page): Issue[] {
+/** 表单控件没有可读标签（M8 / 功能文档 E8「label 关联」）：没有 label 也没有可见文案 */
+function labelIssues(page: Page): Issue[] {
+  const issues: Issue[] = []
+  for (const node of Object.values(page.nodes)) {
+    if (!FORM_TYPES.has(node.type)) continue
+    const label = typeof node.props.label === 'string' ? node.props.label : ''
+    if (label !== '' || textOf(node) !== '') continue
+    const fallback =
+      typeof node.meta.name === 'string' && node.meta.name !== '' ? node.meta.name : `${node.type} 标签`
+    issues.push({
+      id: `missing-label:${node.id}`,
+      kind: 'missing-label',
+      severity: 'warn',
+      pageId: page.id,
+      nodeId: node.id,
+      message: `「${node.meta.name || node.type}」缺少可读标签（label 与文案都为空）`,
+      fixLabel: `补上标签「${fallback}」`,
+      patches: [updatePatch(page, node, { props: { ...node.props, label: fallback } })],
+    })
+  }
+  return issues
+}
+
+/** 断点未覆盖：启用的窄断点下整页一条覆盖都没有（导出会照搬桌面布局） */function breakpointIssues(doc: Doc, page: Page): Issue[] {
   const base = baseBreakpointId(doc.breakpoints)
   if (!base) return []
   const issues: Issue[] = []
@@ -450,6 +486,7 @@ export function audit(doc: Doc, pageKey?: string): AuditResult {
     ...spacingIssues(page),
     ...sizeIssues(page),
     ...altIssues(page),
+    ...labelIssues(page),
     ...breakpointIssues(doc, page),
   ]
   return { issues, boxes: layout.boxes }

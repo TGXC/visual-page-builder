@@ -4,7 +4,7 @@
  * 载入后立刻变成普通的可编辑文档（没有任何模板专属逻辑）。
  */
 import type { Doc, Page, SceneNode, StyleSpec } from '../schema/types'
-import { createDoc } from '../schema/normalize'
+import { createDoc, createId, normalizeDoc } from '../schema/normalize'
 import { defaultPropsFor, defaultSizeFor, defaultStyleFor } from '../schema/catalog'
 
 export interface TemplateDef {
@@ -197,4 +197,48 @@ export const TEMPLATES: readonly TemplateDef[] = [
 export function createFromTemplate(id: string): Doc | null {
   const template = TEMPLATES.find((item) => item.id === id)
   return template ? template.create() : null
+}
+
+export interface NewPageResult {
+  doc: Doc
+  pageId: string
+}
+
+/**
+ * 从模板新建页面（M8 / 功能文档 L6）：把模板的第一页复制进当前文档，
+ * 节点 id 统一加页面前缀避免与已存在的页面撞 id，页面名重复时自动加序号。
+ * 返回新文档与页面 id（`null` 表示模板不存在或收敛失败）。
+ */
+export function pageFromTemplate(doc: Doc, templateId: string): NewPageResult | null {
+  const source = createFromTemplate(templateId)
+  const page = source?.pages[0]
+  if (!page) return null
+
+  const pageId = createId('page')
+  const idMap = new Map<string, string>()
+  for (const id of Object.keys(page.nodes)) idMap.set(id, `${pageId}-${id}`)
+
+  const nodes: Record<string, SceneNode> = {}
+  for (const [id, node] of Object.entries(page.nodes)) {
+    const nextId = idMap.get(id)
+    if (!nextId) continue
+    nodes[nextId] = {
+      ...node,
+      id: nextId,
+      parentId: node.parentId === null ? null : (idMap.get(node.parentId) ?? null),
+    }
+  }
+  const rootId = idMap.get(page.root)
+  if (!rootId || !nodes[rootId]) return null
+
+  const taken = new Set(doc.pages.map((item) => item.name))
+  let name = page.name
+  for (let index = 2; taken.has(name) && index < 100; index += 1) name = `${page.name} ${index}`
+
+  const next = normalizeDoc({
+    ...doc,
+    pages: [...doc.pages, { ...page, id: pageId, name, root: rootId, nodes }],
+    activePageId: pageId,
+  })
+  return next ? { doc: next, pageId } : null
 }

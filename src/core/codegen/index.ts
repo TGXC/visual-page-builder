@@ -19,7 +19,15 @@ import {
   mediaQueryForBreakpoint,
   orderedBreakpoints,
 } from '../responsive'
-import { childrenOf } from '../tree'
+import { childrenFrom, childrenIndex } from '../tree'
+import {
+  cssVarOf,
+  isTokenRef,
+  pageUsesTokens,
+  resolveTokenValue,
+  themeVariablesCss,
+  tokenNameOf,
+} from '../theme'
 
 export { escapeHtml, safeUrl }
 
@@ -68,11 +76,31 @@ export function pageClassOf(doc: Doc, page: Page): string {
 }
 
 /**
+ * 声明生成的两个模式（M8）：画布要具体颜色，样式表要 `var(--token)` 引用。
+ * `tokens` 缺省时按「没有主题」处理（引用解析成空 = 未设置）。
+ */
+interface DeclOptions {
+  tokens?: Record<string, string>
+  cssVars?: boolean
+}
+
+function paintOf(value: string, options?: DeclOptions): string {
+  if (!isTokenRef(value)) return value
+  const name = tokenNameOf(value)
+  if (options?.cssVars) return cssVarOf(name)
+  return options?.tokens ? resolveTokenValue(value, { tokens: options.tokens }) : ''
+}
+
+/**
  * 把节点渲染成声明列表（`prop:value`）。画布内联样式、页面 CSS、断点媒体查询共用它，
  * 这样三边不会出现「一个属性只有一边认识」的漂移。
  */
-function declarations(node: SceneNode, backgroundImage: string, box?: Box): string[] {
+function declarations(node: SceneNode, backgroundImage: string, box?: Box, options?: DeclOptions): string[] {
   const { style, layout } = node
+  const bg = paintOf(style.bg, options)
+  const color = paintOf(style.color, options)
+  const borderColor = paintOf(style.borderColor, options)
+  const shadowColor = paintOf(style.shadowColor, options)
   const x = box ? box.x : layout.position.x
   const y = box ? box.y : layout.position.y
   const w = box ? box.w : (layout.size.w.value ?? 0)
@@ -88,20 +116,20 @@ function declarations(node: SceneNode, backgroundImage: string, box?: Box): stri
 
   if (backgroundImage) {
     parts.push(`background-image:url(${backgroundImage})`, 'background-size:cover', 'background-position:center')
-  } else if (style.bg) {
-    parts.push(`background:${style.bg}`)
+  } else if (bg) {
+    parts.push(`background:${bg}`)
   }
-  if (style.color) parts.push(`color:${style.color}`)
+  if (color) parts.push(`color:${color}`)
   if (style.fontSize > 0) parts.push(`font-size:${px(style.fontSize)}`)
   if (style.fontWeight > 0) parts.push(`font-weight:${style.fontWeight}`)
   if (style.align && style.align !== 'left') parts.push(`text-align:${style.align}`)
   if (style.radius > 0) parts.push(`border-radius:${px(style.radius)}`)
   if (style.borderWidth > 0) {
-    parts.push(`border:${px(style.borderWidth)} solid ${style.borderColor || '#CBD5E1'}`)
+    parts.push(`border:${px(style.borderWidth)} solid ${borderColor || '#CBD5E1'}`)
   }
   if (style.opacity !== 1) parts.push(`opacity:${style.opacity}`)
   if (style.shadowBlur > 0 || style.shadowX !== 0 || style.shadowY !== 0) {
-    parts.push(`box-shadow:${px(style.shadowX)} ${px(style.shadowY)} ${px(style.shadowBlur)} ${style.shadowColor || 'rgba(15,23,42,.18)'}`)
+    parts.push(`box-shadow:${px(style.shadowX)} ${px(style.shadowY)} ${px(style.shadowBlur)} ${shadowColor || 'rgba(15,23,42,.18)'}`)
   }
   if (style.lineHeight > 0) parts.push(`line-height:${style.lineHeight}`)
   if (style.letterSpacing !== 0) parts.push(`letter-spacing:${px(style.letterSpacing)}`)
@@ -110,9 +138,9 @@ function declarations(node: SceneNode, backgroundImage: string, box?: Box): stri
   return parts
 }
 
-function declarationMap(node: SceneNode, backgroundImage: string, box?: Box): Map<string, string> {
+function declarationMap(node: SceneNode, backgroundImage: string, box?: Box, options?: DeclOptions): Map<string, string> {
   const map = new Map<string, string>()
-  for (const part of declarations(node, backgroundImage, box)) {
+  for (const part of declarations(node, backgroundImage, box, options)) {
     const index = part.indexOf(':')
     if (index > 0) map.set(part.slice(0, index), part.slice(index + 1))
   }
@@ -170,6 +198,7 @@ export function generateResponsiveCss(doc: Doc, pageKey: string): string {
   if (ordered.length <= 1) return ''
   const slug = pageClassOf(doc, page)
   const blocks: string[] = []
+  const declOptions: DeclOptions = { tokens: doc.theme.tokens, cssVars: true }
   for (let index = 1; index < ordered.length; index += 1) {
     const breakpoint = ordered[index]
     const query = mediaQueryForBreakpoint(doc.breakpoints, breakpoint.id)
@@ -186,8 +215,8 @@ export function generateResponsiveCss(doc: Doc, pageKey: string): string {
       const node = current.nodes[id]
       const before = previous.nodes[id]
       if (!node || !before) continue
-      const currentDecls = declarationMap(node, backgroundImageOf(node), currentBoxes[id])
-      const previousDecls = declarationMap(before, backgroundImageOf(before), previousBoxes[id])
+      const currentDecls = declarationMap(node, backgroundImageOf(node), currentBoxes[id], declOptions)
+      const previousDecls = declarationMap(before, backgroundImageOf(before), previousBoxes[id], declOptions)
       const parts: string[] = []
       for (const [prop, value] of currentDecls) {
         if (previousDecls.get(prop) !== value) parts.push(`${prop}:${value}`)
@@ -213,15 +242,22 @@ export function generatePageCss(doc: Doc, pageKey: string, boxes?: Record<NodeId
   const root = page.nodes[page.root]
   if (!root) return BASE_CSS
   const layout = boxes ? { boxes } : computeLayout({ nodes: page.nodes, rootId: page.root, viewport: page.viewport })
+  const options: DeclOptions = { tokens: doc.theme.tokens, cssVars: true }
   const rules: string[] = [BASE_CSS]
+  // M8：只在页面真的引用主题 token 时产出 :root 变量块（否则导出结果与 M7 完全一致）
+  if (pageUsesTokens(page)) {
+    const variables = themeVariablesCss(doc.theme)
+    if (variables !== '') rules.push(variables)
+  }
+  const pageBg = paintOf(root.style.bg, options)
   rules.push(
-    `.${pageClassOf(doc, page)} { position:relative; width:${px(page.viewport.w)}; height:${px(page.viewport.h)}; overflow:hidden; margin:0 auto${root.style.bg ? `; background:${root.style.bg}` : ''} }`,
+    `.${pageClassOf(doc, page)} { position:relative; width:${px(page.viewport.w)}; height:${px(page.viewport.h)}; overflow:hidden; margin:0 auto${pageBg ? `; background:${pageBg}` : ''} }`,
   )
   for (const id of Object.keys(page.nodes)) {
     if (id === page.root) continue
     const node = page.nodes[id]
     if (!node) continue
-    const decls = declarations(node, backgroundImageOf(node), layout.boxes[id])
+    const decls = declarations(node, backgroundImageOf(node), layout.boxes[id], options)
     rules.push(`.${nodeClassOf(node)} { ${decls.join('; ')} }`)
   }
   // M7 自定义组件：内部结构的样式由描述符自带（作用域限定在这一个实例的类名上）
@@ -254,8 +290,8 @@ export function generateBaseCss(): string {
  * 内联样式（画布用）。`box` 由布局引擎（`core/layout`）给出；不传时退回节点自己的
  * position/size，这样 M1 的自由布局行为不变，M2 起画布与导出都走同一份几何。
  */
-export function inlineStyle(node: SceneNode, backgroundImage = '', box?: Box): string {
-  return declarations(node, backgroundImage, box).join(';')
+export function inlineStyle(node: SceneNode, backgroundImage = '', box?: Box, tokens?: Record<string, string>): string {
+  return declarations(node, backgroundImage, box, { tokens }).join(';')
 }
 
 function text(value: unknown): string {
@@ -274,11 +310,14 @@ function linkOf(node: SceneNode): string {
 function renderNode(
   node: SceneNode,
   nodes: Record<NodeId, SceneNode>,
+  index: Map<NodeId | null, SceneNode[]>,
   indent: string,
   render: (node: SceneNode) => string,
 ): string {
-  const children = childrenOf(nodes, node.id)
-  const body = renderContent(node, nodes) + children.map((child) => renderNode(child, nodes, indent, render)).join('')
+  const children = childrenFrom(index, node.id)
+  const body =
+    renderContent(node, nodes) +
+    children.map((child) => renderNode(child, nodes, index, indent, render)).join('')
   const link = linkOf(node)
   // link 类型自己就渲染 <a>，不要再套一层
   const inner = link && node.type !== 'link' ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">${body}</a>` : body
@@ -296,8 +335,9 @@ export function generateBodyHtml(doc: Doc, pageKey: string, _boxes?: Record<Node
   const page = resolvePage(doc, pageKey)
   const root = page.nodes[page.root]
   if (!root) return ''
-  const inner = childrenOf(page.nodes, page.root)
-    .map((node) => renderNode(node, page.nodes, '', (child) => classNamesOf(child)))
+  const index = childrenIndex(page.nodes)
+  const inner = childrenFrom(index, page.root)
+    .map((node) => renderNode(node, page.nodes, index, '', (child) => classNamesOf(child)))
     .join('\n')
   return `<div class="page ${pageClassOf(doc, page)}" data-page="${page.id}" data-id="${page.root}">\n${inner}\n</div>`
 }

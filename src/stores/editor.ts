@@ -91,7 +91,24 @@ import {
   writeOverride,
   type OverrideFlags,
 } from '@/core/responsive'
-import { createFromTemplate } from '@/core/templates'
+import { createFromTemplate, pageFromTemplate } from '@/core/templates'
+import {
+  missingTokenRefs,
+  removeToken,
+  setToken,
+  themeTokenEntries,
+  type ThemeTokenEntry,
+} from '@/core/theme'
+import {
+  clearVersions,
+  loadVersions,
+  removeVersion,
+  restoreVersion,
+  saveVersion,
+  versionSummaryOf,
+  type VersionEntry,
+} from '@/core/versions'
+import { decodeDoc, encodeDoc, shareUrl } from '@/core/share'
 import { measureText } from '@/utils/textMeasure'
 
 export const MIN_ZOOM = 0.25
@@ -288,6 +305,20 @@ export const useEditorStore = defineStore('editor', () => {
 
   function clearSelection(): void {
     selectedIds.value = []
+  }
+
+  /**
+   * 键盘选择（M8 / E8）：按 `viewNodes` 的顺序在整棵树里前后移动选中项。
+   * 没有选中时从第一个（或最后一个）开始，绕圈循环。
+   */
+  function selectNext(step = 1): void {
+    const ids = Object.keys(viewNodes.value)
+    if (ids.length === 0) return
+    const current = primary.value ? realId(primary.value.id) : ''
+    const at = ids.indexOf(current)
+    const index = at < 0 ? (step > 0 ? 0 : ids.length - 1) : (at + step + ids.length) % ids.length
+    const next = ids[index]
+    if (next) select(next)
   }
 
   // ── 结构变更 ──────────────────────────────────────────────────────────
@@ -1096,6 +1127,137 @@ export const useEditorStore = defineStore('editor', () => {
     return true
   }
 
+  // ── 主题 token / 版本历史 / 分享 / 从模板新建页面（M8）─────────────────
+  /** 主题面板的列表数据：按组顺序 + 组内名字排序 */
+  const themeTokens = computed<ThemeTokenEntry[]>(() => themeTokenEntries(doc.value.theme))
+  /** 当前页引用了但主题里没有定义的 token（导出会变成空值） */
+  const themeMissing = computed<string[]>(() => missingTokenRefs(activePage.value, doc.value.theme))
+
+  /**
+   * 文档级提交：主题 / 回滚 / 分享载入都会整份换掉文档，走 `commitDocEntry` 才能撤销
+   * （`setDoc()` 默认会清空历史，那是「新建 / 载入模板」这类一次性动作的语义）。
+   */
+  function commitDoc(label: string, after: Doc): void {
+    history.value = commitDocEntry(history.value, { label, at: Date.now(), after })
+    pruneSelection()
+  }
+
+  function writeThemeToken(name: string, value: string): boolean {
+    const trimmed = name.trim()
+    if (trimmed === '') {
+      pushToast('先写一个 token 名字（例如 color-primary）', 'error')
+      return false
+    }
+    const next = setToken(doc.value.theme, trimmed, value.trim())
+    commitDoc(`主题 token：${trimmed}`, { ...doc.value, theme: next })
+    return true
+  }
+
+  function deleteThemeToken(name: string): void {
+    if (doc.value.theme.tokens[name] === undefined) return
+    commitDoc(`删除主题 token：${name}`, { ...doc.value, theme: removeToken(doc.value.theme, name) })
+  }
+
+  const versions = ref<VersionEntry[]>(loadVersions())
+  const versionsCount = computed(() => versions.value.length)
+
+  function describeVersion(entry: VersionEntry): string {
+    return `${versionSummaryOf(entry)} · ${new Date(entry.at).toLocaleString('zh-CN')}`
+  }
+
+  function saveCurrentVersion(name: string): boolean {
+    const label = name.trim() === '' ? `版本 ${versions.value.length + 1}` : name.trim()
+    const list = saveVersion(doc.value, label)
+    versions.value = list
+    if (!list.some((item) => item.name === label)) {
+      pushToast('本机存储不可用，版本没有保存', 'error')
+      return false
+    }
+    pushToast(`已保存版本「${label}」`)
+    return true
+  }
+
+  function restoreVersionById(id: string): boolean {
+    const entry = versions.value.find((item) => item.id === id)
+    const next = restoreVersion(id)
+    if (!next) return false
+    commitDoc(`回滚版本：${entry?.name ?? id}`, next)
+    pushToast('已回滚到该版本（可撤销）')
+    return true
+  }
+
+  function removeVersionById(id: string): void {
+    versions.value = removeVersion(id)
+  }
+
+  function clearAllVersions(): void {
+    versions.value = clearVersions()
+  }
+
+  /** 分享链接的基地址：去掉已有的 hash，交给 `shareUrl` 拼接 */
+  function shareBase(): string {
+    if (typeof location === 'undefined') return 'https://example.com/'
+    return `${location.origin}${location.pathname}`
+  }
+
+  const shareLink = computed(() => shareUrl(doc.value, shareBase()))
+  const shareTooLong = computed(() => shareLink.value === '')
+
+  function shareFragment(): string {
+    return encodeDoc(doc.value)
+  }
+
+  async function copyShareLink(): Promise<boolean> {
+    if (shareTooLong.value) {
+      pushToast('文档太大，地址栏放不下，请改用「整站」导出', 'error')
+      return false
+    }
+    const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
+    if (!clipboard || typeof clipboard.writeText !== 'function') {
+      pushToast('当前环境不支持自动复制，链接已生成', 'info')
+      return true
+    }
+    try {
+      await clipboard.writeText(shareLink.value)
+      pushToast('分享链接已复制')
+      return true
+    } catch {
+      pushToast('复制失败，请手动复制链接', 'error')
+      return false
+    }
+  }
+
+  function openSharedDoc(input: string): boolean {
+    const next = decodeDoc(input)
+    if (!next) {
+      pushToast('分享链接无效或已损坏', 'error')
+      return false
+    }
+    commitDoc('打开分享链接', next)
+    pushToast('已载入分享的文档（可撤销）')
+    return true
+  }
+
+  /** 启动时看地址栏有没有 `#doc=` 片段（分享链接），有就载入 */
+  function loadSharedFromLocation(): boolean {
+    if (typeof location === 'undefined') return false
+    if (!location.hash.startsWith('#doc=')) return false
+    return openSharedDoc(location.hash)
+  }
+
+  function addPageFromTemplate(templateId: string): boolean {
+    const result = pageFromTemplate(doc.value, templateId)
+    if (!result) {
+      pushToast('模板不存在', 'error')
+      return false
+    }
+    const page = result.doc.pages.find((item) => item.id === result.pageId)
+    commitDoc(`从模板新建页面：${page?.name ?? templateId}`, result.doc)
+    if (page) selectedIds.value = [page.root]
+    pushToast(`已新建页面「${page?.name ?? templateId}」`)
+    return true
+  }
+
   // ── 自动保存 ──────────────────────────────────────────────────────────
   let saveTimer: number | undefined
   watch(
@@ -1156,6 +1318,7 @@ export const useEditorStore = defineStore('editor', () => {
     boxes,
     viewport,
     select,
+    selectNext,
     selectMany,
     clearSelection,
     insertComponent,
@@ -1229,6 +1392,25 @@ export const useEditorStore = defineStore('editor', () => {
     aiComponentOption,
     aiRegisterComponent,
     aiLoadCustomComponents,
+    // M8
+    themeTokens,
+    themeMissing,
+    writeThemeToken,
+    deleteThemeToken,
+    versions,
+    versionsCount,
+    describeVersion,
+    saveCurrentVersion,
+    restoreVersionById,
+    removeVersionById,
+    clearAllVersions,
+    shareLink,
+    shareTooLong,
+    shareFragment,
+    copyShareLink,
+    openSharedDoc,
+    loadSharedFromLocation,
+    addPageFromTemplate,
   }
 })
 

@@ -44,6 +44,8 @@ tests/
 └── component/                 拖拽、面板、渲染、AI 面板
 ```
 
+> 实际落地结构与上面这张「目标图」有出入（没有单独的 `editor/`、`runtime/` 目录，组件在 `src/components/`；store 收敛成一个 `src/stores/editor.ts`），**最终目录以 [README.md](README.md) 的「目录结构」段为准**；每个里程碑的「实现偏离」段落记录了原因。
+
 ## 3. 里程碑
 
 ### M0 地基与 v1 迁移
@@ -160,6 +162,8 @@ npm run build
 **任务**：性能达标（1000 节点拖动 60fps、首屏 gzip 预算、导出耗时）、可访问性检查、主题 token/模板 6 套/版本历史/分享发布、README + decisions + 演示视频 + 部署（静态托管，链接需用户账号）。
 
 **验收**：性能基准脚本输出留档 + `npm run test/lint/build` 全绿 + CI 配置 + 线上或本地生产预览证据。
+
+**实现偏离（已完成）**：主题 token 落在新的 `src/core/theme`（样式里写 `$name`，导出 `var(--name)` + 只在页面真的用到 token 时注入 `:root{}`，画布用 `inlineStyle(…, tokens)` 解析成具体颜色）—— 计划里说「颜色/字号/间距/圆角/阴影」，实际**只支持 4 个颜色字符串字段**（`bg / color / borderColor / shadowColor`），因为 `fontSize`/`radius`/`lineHeight` 是 `number`，改成联合类型会波及 layout / codegen / canvas 全链路（D51）；数字 token 仍在主题面板里维护。模板 6 套 M1 就有了，M8 补的是「从模板新建页面」`pageFromTemplate(doc, id)`（节点 id 加页面前缀防撞、重名加序号、走文档级历史条目因此可撤销）。版本历史 `src/core/versions`（本机最多 20 条、`restoreVersion()` 返回深拷贝）与分享 `src/core/share`（`#doc=` base64url、12000 字符上限、`decodeDoc()` 能吃完整地址、`EditorShell.onMounted` 自动载入）都**不做后端**（D54/D55）。可访问性：助手补第六条规则 `missing-label`（表单类组件无 `label` 也无文案才报），键盘在已有的方向键微调之外加了 **Alt + 方向键换选中项**；导出的 `<div>` 盒子语义没有改成 `<header>/<nav>/<section>` 大纲映射。性能：`tests/perf/export.perf.spec.ts` 覆盖 1000 节点导出链路并打印分阶段中位数，**首跑 898.66ms → 优化后 73–80ms**（`core/tree` 加 `childrenIndex()`、`renderContext().children` 改懒计算、`buildSite()` 复用激活页 HTML，导出字节数不变，D53）。CI 补 `.github/workflows/ci.yml`（lint → test → coverage → build → perf → smoke → 上传 dist）与 `scripts/sandbox-shim.cjs`（存在性判断垫片，沙箱与 CI 同一条命令，D56）。**未做**：演示视频、线上静态托管部署（需要用户账号）、拖动 60fps 的自动化帧率断言（只在浏览器里人工感受）、版本 diff 视图、token 别名/继承。
 
 ## 4. 数据模型约定（v2 关键约束）
 
