@@ -265,6 +265,17 @@ npm run build
 **验收**：`npm test` 52 文件 / 598 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 285.13 kB / gzip 98.53，CSS 29.86 kB / gzip 5.77）、`test:perf` 布局 5.44ms / 导出 149.31ms（CSS 44.15 / HTML 44.53 / 整站 48.98 / ZIP 7.52ms，本轮机器负载偏高）、`test:smoke` 通过。新增 4 例组件测试：拖入非组件类型不插入、同手势两个 drop 只插一个、拖动只移动不复制、状态栏显示 M18。**未做**：画布里文字不能再鼠标选中复制；拖入失败是静默的；同位置连续拖入同类型有 500ms/8px 去重窗；版本角标要手动维护；沙箱内无法启动真实浏览器，D77 的结论来自可验证的浏览器行为 + 代码路径，仍未真机复现。
 
 
+### M19 拖拽起始盒改取当前断点的绝对几何（计划外，用户第十一轮反馈）
+
+**触发**：用户第十一轮反馈「问题依旧存在」，并给了决定性例子：「当我的鼠标按在组件的后半段时，一拖拽鼠标就可能跑到前半段去了」。「一拖就跳」（而不是拖着拖着漂）说明锚点在按下那一刻就错了，和 M18 修的「手势被原生 drag 掐断」是两条路径。
+
+**根因**：`beginMove()` 用 `store.nodes[id]` 算起始盒——那是**基准断点**的几何；而画布渲染与 `store.boxes` 用的是当前断点的**有效几何**（`viewNodes` = 基准 + 当断点 `overrides`）。元素在窄断点上被调过位置/尺寸后，第一帧位移为 0，`setBox()` 却按基准坐标把相对盒写回去，元素瞬间跳到基准位置、跳变量 = 两套坐标的差；按在后半段时鼠标就落到跳完后的前半段。另外 `setBox()` 收的是相对父容器内容框的坐标，而位移/吸附在绝对空间算：`snapTargets()` 用 `rectOf(view node)`（相对）和绝对候选框比，嵌套容器里的元素吸不准；缩放路径直接把绝对结果写进 `setBox()`，尺寸位置会多一个父级原点。
+
+**做了什么**：`Interaction` 同时快照 `boxes`（`store.boxes` 绝对盒，算位移/吸附/包围盒）与 `rels`（`rectOf(view[id])` 相对盒，写回 `setBox()`）；`beginMove()`、缩放手柄按下、`snapTargets()`、移动与缩放写回全部改成「绝对空间算、写回换相对」；`onStagePointerDown` 判断 `locked` 也从 `store.nodes` 改成当前断点节点。`src/config/build.ts` 的 `BUILD_TAG` 改 `M19`。`tests/component/helpers.ts` 的 `down()` 支持传 `PointerEventInit`（测 Alt 深选）；`tests/component/editor.spec.ts` 新增 3 例：mobile 断点拖动从屏幕位置继续走（位置 30,10 / 尺寸 100×50 保持）、mobile 断点缩放沿屏幕边缘（100×50 → 120×70）、容器内元素按绝对位置参与磁吸（196 → 200）（D81）。
+
+**验收**：`npm test` 52 文件 / 601 用例、覆盖率 97.20 / 90.66 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（99 modules；JS 285.36 kB / gzip 98.62，CSS 29.86 kB / gzip 5.77）、`test:perf` 布局 5.23ms / 导出 134.01ms（CSS 42.52 / HTML 45.26 / 整站 42.12 / ZIP 8.09ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 6905`）。**未做**：真实浏览器手感仍靠目测（jsdom 不跑布局，`store.boxes` 来自 `computeLayout()` 而非浏览器测量）；换父级时位置由 `core/dnd` 重新换算、不沿用 `rels`；磁吸目标仍是所有非隐藏节点；只有出现过断点覆盖的元素才会触发旧 bug，没有覆盖时基准几何 = 有效几何（这也是前几轮难复现的原因）。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

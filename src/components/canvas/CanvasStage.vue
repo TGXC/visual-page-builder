@@ -51,7 +51,14 @@ interface Interaction {
   scale: number
   handle: Handle | null
   ids: NodeId[]
+  /**
+   * 按下那一刻的**绝对**盒（页面坐标系）。拖拽的位移、吸附、包围盒全在绝对空间里算：
+   * `layout.position` 是相对父容器内容框的，父容器一换坐标系（窄断点几何、嵌套容器）
+   * 就会和屏幕上的位置对不上，这就是「按在组件后半段、一拖却跑到前半段」的来源（ADR D81）。
+   */
   boxes: Map<NodeId, Box>
+  /** 按下那一刻的**相对**盒：写回 `setBox()` 要的是它，和 `boxes` 只差一个父级原点 */
+  rels: Map<NodeId, Box>
   startBox: Box
   active: boolean
 }
@@ -158,7 +165,7 @@ function snapThreshold(active: Interaction): number {
   return SNAP_THRESHOLD / (active.scale || 1)
 }
 
-/** 磁吸参考线：同级节点的六条边 + 画布四条边 */
+/** 磁吸参考线：同级节点的六条边 + 画布四条边（全部取绝对盒，和拖拽候选框同一坐标系） */
 function snapTargets(ids: NodeId[]): { x: number[]; y: number[] } {
   const x = [0, vw.value / 2, vw.value]
   const y = [0, vh.value / 2, vh.value]
@@ -166,7 +173,8 @@ function snapTargets(ids: NodeId[]): { x: number[]; y: number[] } {
     if (ids.includes(node.id) || node.id === store.rootId) continue
     if (ids.some((id) => isDescendantOf(store.nodes, id, node.id))) continue
     if (node.meta.hidden) continue
-    const box = rectOf(node)
+    const box = store.boxes[node.id]
+    if (!box) continue
     x.push(box.x, box.x + box.w / 2, box.x + box.w)
     y.push(box.y, box.y + box.h / 2, box.y + box.h)
   }
@@ -234,9 +242,15 @@ const dropHint = computed(() => {
 function beginMove(event: PointerEvent, node: SceneNode): void {
   const ids = store.selectedIds.includes(node.id) ? topLevelSelection() : [node.id]
   const boxes = new Map<NodeId, Box>()
+  const rels = new Map<NodeId, Box>()
   for (const id of ids) {
-    const target = store.nodes[id]
-    if (target) boxes.set(id, rectOf(target))
+    // 绝对盒（`store.boxes`）才是屏幕上的位置；窄断点下 `store.nodes` 还是基准断点的几何，
+    // 从它起拖会让元素瞬间跳回桌面坐标（ADR D81）
+    const box = store.boxes[id]
+    const rel = view.value[id]
+    if (!box || !rel) continue
+    boxes.set(id, box)
+    rels.set(id, rectOf(rel))
   }
   const start = localPoint(event.clientX, event.clientY)
   interaction = {
@@ -250,6 +264,7 @@ function beginMove(event: PointerEvent, node: SceneNode): void {
     handle: null,
     ids,
     boxes,
+    rels,
     startBox: unionOf([...boxes.values()]),
     active: false,
   }
@@ -295,6 +310,8 @@ function onStagePointerDown(event: PointerEvent): void {
     const node = resolved.node
     store.select(targetId)
     const start = localPoint(event.clientX, event.clientY)
+    const absBox = store.boxes[targetId] ?? rectOf(node)
+    const relNode = view.value[targetId]
     interaction = {
       mode: 'resize',
       pointerId: event.pointerId,
@@ -305,8 +322,9 @@ function onStagePointerDown(event: PointerEvent): void {
       scale: store.zoom,
       handle: handleEl.getAttribute('data-handle') as Handle,
       ids: [targetId],
-      boxes: new Map([[targetId, rectOf(node)]]),
-      startBox: rectOf(node),
+      boxes: new Map([[targetId, absBox]]),
+      rels: new Map([[targetId, relNode ? rectOf(relNode) : absBox]]),
+      startBox: absBox,
       active: true,
     }
     attach()
@@ -327,7 +345,7 @@ function onStagePointerDown(event: PointerEvent): void {
     const targetId = additive ? resolved.id : pickTarget(resolved.id, event.altKey)
     if (!store.selectedIds.includes(targetId)) store.select(targetId, additive)
     else if (additive) store.select(targetId, true)
-    const node = store.nodes[targetId] ?? resolved.node
+    const node = view.value[targetId] ?? resolved.node
     if (node.meta.locked) return
     beginMove(event, node)
     attach()
@@ -353,6 +371,7 @@ function startMarquee(event: PointerEvent): void {
     handle: null,
     ids: [],
     boxes: new Map(),
+    rels: new Map(),
     startBox: { x: point.x, y: point.y, w: 0, h: 0 },
     active: false,
   }
@@ -426,7 +445,19 @@ function onStagePointerMove(event: PointerEvent): void {
     const target = interaction.ids[0]
     const snapped = applySnap(box, snapTargets(interaction.ids), snapThreshold(interaction))
     guides.value = snapped.guides
-    store.setBox(target, snapped.box, '缩放元素', 'resize')
+    // 吸附在绝对空间里算；写回 `setBox()` 要换成相对父容器内容框的坐标
+    const startRel = interaction.rels.get(target) ?? interaction.startBox
+    store.setBox(
+      target,
+      {
+        x: startRel.x + (snapped.box.x - interaction.startBox.x),
+        y: startRel.y + (snapped.box.y - interaction.startBox.y),
+        w: snapped.box.w,
+        h: snapped.box.h,
+      },
+      '缩放元素',
+      'resize',
+    )
     return
   }
 
@@ -445,7 +476,7 @@ function onStagePointerMove(event: PointerEvent): void {
   const shiftX = snapped.box.x - interaction.startBox.x
   const shiftY = snapped.box.y - interaction.startBox.y
   for (const id of interaction.ids) {
-    const start = interaction.boxes.get(id)
+    const start = interaction.rels.get(id)
     if (!start) continue
     store.setBox(id, { x: start.x + shiftX, y: start.y + shiftY, w: start.w, h: start.h }, '移动元素', 'move')
   }

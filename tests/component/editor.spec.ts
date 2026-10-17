@@ -147,7 +147,7 @@ describe('M1 编辑器：画布交互与面板', () => {
   })
 
   it('状态栏显示当前界面版本号（对不上就是浏览器缓存了旧文件）', async () => {
-    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M18')
+    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M19')
   })
 
   it('拖动元素改位置，Ctrl+Z 撤销回原位', async () => {
@@ -186,6 +186,64 @@ describe('M1 编辑器：画布交互与面板', () => {
     up(340, 140)
     // 屏幕位移 200px ⇒ 设计位移 200px，而不是被容器位移吃掉 120px
     expect(store.nodes[id].layout.position).toEqual({ x: 300, y: 100 })
+  })
+
+  it('窄断点（mobile）下拖动从屏幕位置继续走，不跳回基准断点坐标', async () => {
+    const id = store.insertComponent('rect', { position: { x: 100, y: 100 } })
+    store.setBox(id, { x: 100, y: 100, w: 300, h: 100 }, 'init')
+    await flush()
+    store.setBreakpoint('mobile')
+    await flush()
+    store.setBox(id, { x: 10, y: 10, w: 100, h: 50 }, 'mobile')
+    await flush()
+    // 屏幕上按下 (40,30)、右移 20px：元素应该从 (10,10) 走到 (30,10)
+    down(nodeEl(wrapper, id), 40, 30)
+    move(60, 30)
+    up(60, 30)
+    await flush()
+    expect(store.resolvedNodes[id].layout.position).toEqual({ x: 30, y: 10 })
+    // 尺寸按窄断点的 100×50 走，不能被基准断点的 300×100 顶掉
+    expect(store.resolvedNodes[id].layout.size.w.value).toBe(100)
+    expect(store.resolvedNodes[id].layout.size.h.value).toBe(50)
+    // 基准断点几何保持原样
+    expect(store.nodes[id].layout.position).toEqual({ x: 100, y: 100 })
+  })
+
+  it('窄断点下缩放沿屏幕上的边缘走，尺寸按窄断点算', async () => {
+    const id = store.insertComponent('rect', { position: { x: 100, y: 100 } })
+    store.setBox(id, { x: 100, y: 100, w: 300, h: 100 }, 'init')
+    await flush()
+    store.setBreakpoint('mobile')
+    await flush()
+    store.setBox(id, { x: 10, y: 10, w: 100, h: 50 }, 'mobile')
+    await flush()
+    const handle = nodeEl(wrapper, id).querySelector('[data-handle="se"]') as HTMLElement
+    down(handle, 110, 60)
+    move(130, 80)
+    up(130, 80)
+    await flush()
+    expect(store.resolvedNodes[id].layout.size.w.value).toBe(120)
+    expect(store.resolvedNodes[id].layout.size.h.value).toBe(70)
+    expect(store.resolvedNodes[id].layout.position).toEqual({ x: 10, y: 10 })
+  })
+
+  it('拖动时磁吸参考线按绝对位置算（容器里的元素和外层元素能对齐）', async () => {
+    const frame = store.insertComponent('frame', { position: { x: 100, y: 100 } })
+    store.setBox(frame, { x: 100, y: 100, w: 400, h: 300 }, 'init')
+    const inside = store.insertComponent('rect', { position: { x: 500, y: 500 } })
+    store.reparent([inside], frame)
+    const outside = store.insertComponent('rect', { position: { x: 200, y: 500 } })
+    store.setBox(outside, { x: 200, y: 500, w: 80, h: 80 }, 'init')
+    // 容器内元素绝对盒 = 父盒(100) + 相对位置；放在外层元素左边缘附近 196 处，拖 2px 应该吸到 200
+    store.setBox(inside, { x: 96, y: 0, w: 80, h: 80 }, 'init')
+    await flush()
+    expect(store.boxes[inside].x).toBe(196)
+    // Alt 深选：直接拖容器里的元素（默认第一下点选的是外层容器）
+    down(nodeEl(wrapper, inside), 200, 140, { altKey: true })
+    move(206, 140)
+    await flush()
+    expect(store.boxes[inside].x).toBe(200)
+    up(206, 140)
   })
 
   it('拖动时显示到左右邻居的间距，等距时高亮，放手后消失', async () => {

@@ -33,14 +33,18 @@ export function installLayout(): void {
   })
 }
 
-function pointerEvent(type: string, x: number, y: number): Event {
+function pointerEvent(type: string, x: number, y: number, options: PointerEventInit = {}): Event {
   const event = new Event(type, { bubbles: true, cancelable: true })
-  Object.assign(event, { pointerId: 1, clientX: x, clientY: y, button: 0, buttons: 1, shiftKey: false, ctrlKey: false, metaKey: false })
+  Object.assign(
+    event,
+    { pointerId: 1, clientX: x, clientY: y, button: 0, buttons: 1, shiftKey: false, ctrlKey: false, metaKey: false },
+    options,
+  )
   return event
 }
 
-export function down(target: EventTarget, x: number, y: number): void {
-  target.dispatchEvent(pointerEvent('pointerdown', x, y))
+export function down(target: EventTarget, x: number, y: number, options: PointerEventInit = {}): void {
+  target.dispatchEvent(pointerEvent('pointerdown', x, y, options))
 }
 
 export function move(x: number, y: number): void {
