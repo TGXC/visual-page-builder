@@ -162,7 +162,7 @@ function copyStyle(): void {
           {{ option.label }}
         </button>
       </div>
-      <button type="button" class="danger-button" data-role="delete-selection" @click="store.removeSelection()">删除选中元素</button>
+      <button type="button" class="danger-button" data-role="delete-selection" :disabled="!store.canRemoveSelection" @click="store.removeSelection()">删除选中元素</button>
       <button type="button" class="ghost-button" data-role="copy-style" @click="copyStyle">复制样式</button>
       <button type="button" class="ghost-button" data-role="paste-style" :disabled="!store.styleClipboard" @click="store.pasteStyleToSelection()">
         粘贴样式
@@ -293,7 +293,16 @@ function copyStyle(): void {
         <input class="prop-input" :data-prop="key" :value="unknownValue(key)" @input="setContent(key, $event)">
       </label>
 
-      <button type="button" class="danger-button" data-role="delete-selection" @click="store.removeSelection()">
+      <p v-if="node.id === store.rootId" class="panel__hint" data-role="root-hint">
+        当前选中的是页面画布本身（根容器），不能删除；要删的是画布里的元素。
+      </p>
+      <button
+        type="button"
+        class="danger-button"
+        data-role="delete-selection"
+        :disabled="!store.canRemoveSelection"
+        @click="store.removeSelection()"
+      >
         删除这个元素
       </button>
     </div>

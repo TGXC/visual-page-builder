@@ -207,6 +207,17 @@ export const useEditorStore = defineStore('editor', () => {
     }
     return out
   })
+  /**
+   * 选区里是否至少有一个「删得掉」的元素（排除页面根容器与锁定元素）。
+   * 删除按钮 / 右键删除项都按它置灰，避免点了没反应还以为功能坏了。
+   */
+  const canRemoveSelection = computed(() =>
+    selectedIds.value.some((id) => {
+      // TS7022：annotate，避免 computed 回调内自我引用推断成 any
+      const node: SceneNode | undefined = nodes.value[id]
+      return Boolean(node) && id !== rootId.value && !node.meta.locked
+    }),
+  )
   /** 主选中的原生节点（覆盖标记要读它自己的 overrides，有效节点里 overrides 是空的） */
   const primaryRaw = computed<SceneNode | null>(() => {
     const id = selectedIds.value[0]
@@ -441,7 +452,15 @@ export const useEditorStore = defineStore('editor', () => {
     const protectedIds = exists.filter((id) => id === rootId.value || nodes.value[id].meta.locked)
     const removable = exists.filter((id) => !protectedIds.includes(id))
     if (removable.length === 0) {
-      pushToast(protectedIds.includes(rootId.value) ? '根节点不能删除' : '元素已锁定，先解锁再删除', 'error')
+      // 根被选中是「模板新建页面」时代的遗留状态，文案要说清他不是选中了某个矩形元素。
+      const hasRoot = protectedIds.includes(rootId.value)
+      const hasLocked = protectedIds.length > (hasRoot ? 1 : 0)
+      const text = hasRoot
+        ? hasLocked
+          ? '这是页面画布本身（删不掉），锁定元素要先解锁'
+          : '这是页面画布本身（根容器），删不掉；要删的是画布里的元素'
+        : '元素已锁定，先解锁再删除'
+      pushToast(text, 'error')
       return
     }
     const patches = removePatches(activePage.value, removable)
@@ -935,7 +954,9 @@ export const useEditorStore = defineStore('editor', () => {
         at: Date.now(),
         after: nextDoc,
       })
-      selectedIds.value = [page.root]
+      // M11：新页面生成后不选根容器 —— 根被选中时按 Delete 只会提示「根节点不能删除」，
+      // 用户看到的却是画布上一个被选中的大矩形，很容易当成「删不掉的元素」。
+      selectedIds.value = []
       aiMessage.value = `已生成「${page.name}」（${Object.keys(page.nodes).length} 个节点）${warnings.length > 0 ? `｜${warnings.join('；')}` : ''}`
       pushToast('AI 已生成新页面（可撤销）')
       return true
@@ -1298,8 +1319,9 @@ export const useEditorStore = defineStore('editor', () => {
     }
     const page = result.doc.pages.find((item) => item.id === result.pageId)
     commitDoc(`从模板新建页面：${page?.name ?? templateId}`, result.doc)
-    if (page) selectedIds.value = [page.root]
-    pushToast(`已新建页面「${page?.name ?? templateId}」`)
+    // M11：只切页不选根容器（原因同 aiGeneratePage）。
+    selectedIds.value = []
+    pushToast(`已新建页面「${page?.name ?? templateId}」，点选画布元素后可删除`)
     return true
   }
 
@@ -1339,6 +1361,7 @@ export const useEditorStore = defineStore('editor', () => {
     selection,
     primary,
     primaryRaw,
+    canRemoveSelection,
     hoveredId,
     pointer,
     zoom,

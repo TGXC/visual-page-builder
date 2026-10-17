@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）、M8（收尾：主题 token + 版本历史 + 分享发布 + 可访问性 + 性能预算 + CI）已完成 —— PLAN.md 的 M0→M8 全部走完；之后按用户对 WebBuilder 的实测反馈补了 M9（画布网格 / 层级选择 / 删除保护 / 右侧栏页签），又按第二轮反馈补了 M10（图层类型名中文化 / 删除入口显性化）。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）、M8（收尾：主题 token + 版本历史 + 分享发布 + 可访问性 + 性能预算 + CI）已完成 —— PLAN.md 的 M0→M8 全部走完；之后按用户对 WebBuilder 的实测反馈补了 M9（画布网格 / 层级选择 / 删除保护 / 右侧栏页签），又按第二轮反馈补了 M10（图层类型名中文化 / 删除入口显性化），最后按第三轮反馈补了 M11（定位到删除故障真因：新建模板页后自动选中根容器）。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -193,7 +193,20 @@ M9 交付后用户又提了两条：**图层里的类型名还是英文**、**�
 | 1 | 图层里的英文换成中文 | `core/components` 新增 `componentLabel(type)`（取描述符的中文 `label`，未注册类型原样返回），图层行、属性面板 `prop-type`、画布单选角标、层级面包屑四处统一改用它（D63）。`text`/`section`/`frame` 现在显示「文本 / 区块 / 容器」，与左侧组件面板一致 | `tests/component/layers.spec.ts` 6 例 |
 | 2 | 删除功能故障 | 代码层逐条复查（`removeSelection` → `removePatches` 级联 → 历史不合并删除条目 → 自动保存）没发现新的逻辑错误，组件测试也复现不出；能确定的是**删除入口不明确**：原来只有键盘 Delete、右键菜单、属性面板底部三处，图层行只能显隐/锁定/上下移层，用户会去图层里找删除（D64）。这一轮把入口做显眼：图层每行 🗑（`data-role="layer-delete"`）、顶栏撤销旁「🗑 删除」（`data-role="toolbar-delete"`，无选中时禁用），两者与 Delete 键共用同一条 `removeSelection()` 保护与提示 | `layers.spec.ts`「图层行的删除按钮删掉元素，容器连子孙一起删」「图层行删除按钮对锁定元素给提示、不删除」「顶栏删除按钮：没选中时禁用，选中后能删」 |
 
-M10 同样没有新依赖；改动 `src/core/components/index.ts`（+`componentLabel`）、`src/components/editor/{LayerPanel,PropPanel,EditorShell}.vue`、`src/components/canvas/{CanvasStage,ElementView}.vue`、`src/styles/editor.css`，测试新增 `tests/component/layers.spec.ts`（6 例，全量 51 文件 / 574 例）。
+M10 同样没有新依赖；改动 `src/core/components/index.ts`（+`componentLabel`）、`src/components/editor/{LayerPanel,PropPanel,EditorShell}.vue`、`src/components/canvas/{CanvasStage,ElementView}.vue`、`src/styles/editor.css`，测试新增 `tests/component/layers.spec.ts`（6 例）。
+
+## M11 已经做了什么：删除故障的真因（第三次实测后定位）
+
+用户第三轮反馈很关键：**「显示根节点不能删除，但那也不是网格画布，而是一个矩形」**——他以为自己选中的是一个矩形元素，实际选中的是页面的根 frame（在画布上就是一片大矩形选中框）。组件测试探针把路径固定下来了：
+
+| # | 现象 | 根因 | 修法 |
+| --- | --- | --- | --- |
+| 1 | 从模板新建页面后，画布上留着一片被选中的大矩形，按 Delete 只提示「根节点不能删除」，怎么按都删不掉 | `addPageFromTemplate()`（`src/stores/editor.ts`）与 AI 生成页面（`aiGeneratePage()`）提交文档后都执行 `selectedIds.value = [page.root]`，把新页面的根容器塞进了选区；根 frame 的选中框就是一个大矩形，所以「看起来像选中了矩形但删不掉」 | 两处都改成清空选区（D65） |
+| 2 | 就算选中根，也看不出「画布本身不能删」和「按钮坏了」的区别 | 顶栏/属性面板/右键菜单的删除按钮只看「有没有选中」，选中根时按钮可点但只会报错 | store 新增 `canRemoveSelection`（排除根与 `meta.locked`），三处按钮按它置灰；`removeSelection()` 的提示改成「这是页面画布本身（根容器），删不掉；要删的是画布里的元素」 |
+| 3 | 属性面板选中根时仍显示「删除这个元素」 | 同上 | 根被选中时属性面板改显示一行提示 `data-role="root-hint"` |
+
+M11 没有新依赖；改动 `src/stores/editor.ts`（两处清空选区 + `canRemoveSelection` + 文案）、`src/components/editor/{EditorShell,PropPanel,ContextMenu}.vue`，测试在 `tests/component/selection.spec.ts` 增 3 例（全量 51 文件 / 577 例）。
+
 
 
 ## M0 已经做了什么
@@ -279,25 +292,25 @@ tests/
 └── smoke/                   # 导出冒烟：真实写盘 studio.html / site.zip，用外部工具校验（npm run test:smoke）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D64）
+├── decisions.md             # 架构决策记录（ADR，D1–D65）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M10）
+## 质量数据（M11）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 51 个文件 / **574 个用例全绿**（含 2 个导出结构快照） |
-| 覆盖率 | 语句 97.18% · 分支 90.51% · 函数 97.37% · 行 99.35%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 与 Vue 组件由单测与组件测试覆盖但不在 v8 统计里） |
-| 性能（布局，E7） | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **5.78–6.17ms**（阈值 8ms；同机多轮 3.5–6.2ms，本轮与 dev server 同时跑） |
-| 性能（导出，E7） | 1000 节点真实导出链路（CSS 243848 B + HTML 305481 B + 整站 + ZIP 375581 B）中位数 **127.02ms**（最快 97.48ms；阈值 1000ms），分阶段 CSS 36.97 / HTML 41.87 / 整站 41.98 / ZIP 5.85ms（同机多轮 70.9–127ms） |
+| 测试 | 51 个文件 / **577 个用例全绿**（含 2 个导出结构快照） |
+| 覆盖率 | 语句 97.18% · 分支 90.56% · 函数 97.37% · 行 99.35%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 与 Vue 组件由单测与组件测试覆盖但不在 v8 统计里） |
+| 性能（布局，E7） | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **3.92ms**（最快 2.92ms；阈值 8ms；同机多轮 3.5–6.2ms，本轮与 dev server 同时跑） |
+| 性能（导出，E7） | 1000 节点真实导出链路（CSS 243848 B + HTML 305481 B + 整站 + ZIP 375581 B）中位数 **98.58ms**（最快 85.74ms；阈值 1000ms），分阶段 CSS 31.09 / HTML 30.60 / 整站 29.95 / ZIP 4.56ms（同机多轮 70.9–127ms） |
 | 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、`mediaQueries 2`、zip 6905 B，`Expand-Archive` 解压通过 |
-| 构建 | 98 modules；JS 279.75 kB（**gzip 96.42 kB**）；CSS 22.45 kB（gzip 4.43 kB） |
+| 构建 | 98 modules；JS 280.48 kB（**gzip 96.71 kB**）；CSS 22.45 kB（gzip 4.43 kB） |
 | 生产预览 | `npm run build` 后 `npm run preview -- --port 4173`：`/` 200、`/assets/index-*.js` 200、`/assets/index-*.css` 200 |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 | CI | `.github/workflows/ci.yml`：lint → test → coverage → build → perf → smoke → 上传 dist |
 
-M9 让 CSS 从 19.87 kB 涨到 22.06 kB（gzip +0.34 kB）、JS 从 275.21 kB 涨到 279.10 kB（gzip +1.16 kB）：网格层、面包屑、包围框、页签与删除保护；M10 又让 CSS 涨到 22.45 kB（+0.39 kB / gzip +0.05 kB）、JS 涨到 279.75 kB（+0.65 kB / gzip +0.18 kB）：中文类型名与两个删除入口。两轮都没有引入任何新依赖。
+M9 让 CSS 从 19.87 kB 涨到 22.06 kB（gzip +0.34 kB）、JS 从 275.21 kB 涨到 279.10 kB（gzip +1.16 kB）：网格层、面包屑、包围框、页签与删除保护；M10 又让 CSS 涨到 22.45 kB（+0.39 kB / gzip +0.05 kB）、JS 涨到 279.75 kB（+0.65 kB / gzip +0.18 kB）：中文类型名与两个删除入口；M11 只涨 JS 到 280.48 kB（+0.73 kB / gzip +0.29 kB）、CSS 不变：一个 `computed` 加几处条件渲染。三轮都没有引入任何新依赖。
 
 性能这一轮没有退化：新增的只是 CSS 渐变与两个按钮，不参与布局计算（D57）；导出链路的瓶颈（`childrenOf()` 全表扫描）在 M8 已换成 `childrenIndex()`，仍然远低于 1s 阈值。
 
@@ -342,11 +355,15 @@ perf/smoke 脚本用「存在性判断垫片」让沙箱与 CI 跑同一条命�
 
 ## 已知缺口 / 未做
 
-- **PLAN.md 的 M0–M8 全部完成，另有两轮计划外的体验修订（M9 / M10）**：M8 交付了主题 token、从模板新建页面、版本历史、分享链接、可访问性补充规则与键盘选择、性能基准（布局 + 导出）与 CI；M9 是用户实测后补的画布网格、删除保护、层级选择与右栏排版；M10 是用户第二轮反馈后的类型名中文化与删除入口显性化（见「M9 / M10 已经做了什么」）。下面按里程碑列出仍然存在的取舍与缺口（都是「知道但没做」，不是没发现）。
+- **PLAN.md 的 M0–M8 全部完成，另有三轮计划外的体验修订（M9 / M10 / M11）**：M8 交付了主题 token、从模板新建页面、版本历史、分享链接、可访问性补充规则与键盘选择、性能基准（布局 + 导出）与 CI；M9 是用户实测后补的画布网格、删除保护、层级选择与右栏排版；M10 是用户第二轮反馈后的类型名中文化与删除入口显性化；M11 是第三轮反馈后定位到的删除故障真因——新建模板页后自动选中了页面根容器（见「M9 / M10 / M11 已经做了什么」）。下面按里程碑列出仍然存在的取舍与缺口（都是「知道但没做」，不是没发现）。
+- **M11 的取舍与已知缺口**：
+  - **根容器仍然可以被程序性选中**：这轮只是不再在「新建页面 / AI 生成页面」后自动选根，`store.select(rootId)` 本身仍合法（属性面板能改页面背景、图层树不列根），所以外部调用或未来的新入口仍可能把根选进选区；兜底只有 `removeSelection()` 的边界检查与 `canRemoveSelection` 置灰。
+  - **没有「页面设置」独立入口**：新建模板页后属性面板是空态（要先点一个元素）；想改页面背景尺寸仍得选中根，入口不显眼。
+  - **删除故障的其他可能路径没有排查完**：`addPageFromTemplate` / AI 生成这两条已确认修复；键盘 Delete 在输入框聚焦时被 `isTyping` 拦掉、页面 ✕ 只在多页时出现，这两处是设计如此，但如果用户还有别的操作路径（比如某个遮罩层挡住点击），本地仍无法用真实浏览器复现（沙箱里 headless Edge 崩在 mojo/crashpad 层）。
 - **M10 的取舍与已知缺口**：
   - **`componentLabel()` 依赖注册表**：类型名取描述符的中文 `label`，所以 `unregisterComponent()` 之后老文档里的节点会退化成英文类型名；自定义组件（`category: 'custom'`）显示的是注册时的名字，改名会连带改图层里的显示名。
   - **删除入口有五个但没有新的删除逻辑**：键盘 Delete / 右键菜单 / 属性面板危险按钮 / 图层行 🗑 / 顶栏「删除」全部落到 `removeSelection()`，所以「锁定元素要先解锁」「根节点不能删」在多选时仍然只给出「已跳过 N 个」的提示；这轮没有把 `locked` 检查下沉到 `core/ops`（仍按 D58 的入口负责制）。
-  - **用户报的「删除故障」没能在本地复现**：开发环境里拿不到浏览器现场（headless Edge 被沙箱拦在 mojo 层、opencli 扩展未连接），所以这轮只做了「入口显性化 + 组件测试锁行为」，没有定位到一个具体的交互崩溃；如果仍然删不掉，需要用户给出具体操作路径（哪个按钮 / 键盘还是右键 / 单选还是多选）。
+  - **用户报的「删除故障」在 M11 才定位到真因**：M10 这轮只做了入口显性化；真正能把删除卡死的是「从模板新建页面 / AI 生成页面后自动选中根容器」，M11 已改（D65）。
 - **M9 的取舍与已知缺口**：
   - **网格是 CSS 渐变不是真 DOM 网格**：次网格 8px、主网格 64px 两层，间距随 `zoom` 换算（`background-size` 用 `8×zoom` / `64×zoom`），所以缩放到很小（<25%）时细网格会糊成一片淡色、缩到很大时线会变粗；没有做「隐藏网格 / 只留主网格」的开关，也没有参考平台那种标尺。
   - **多选只有虚线包围框**：参考平台是每个选中元素各自描边，这里 `.canvas-multibox` 画一个 `unionOf` 的虚线大框 + 「N 个元素」标签，框内元素自身的选中描边只在单选的元素上出现（多选时用 `data-role="multi-box"` 那份表示）；没有多选属性面板（右侧仍显示单选属性）。

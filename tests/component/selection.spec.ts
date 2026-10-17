@@ -191,4 +191,45 @@ describe('选择与删除', () => {
     expect(button.exists()).toBe(true)
     expect(button.text()).toContain('删除')
   })
+
+  it('从模板新建页面后不再选中根容器，Delete 不会卡在「根节点不能删除」', async () => {
+    // 用户 m09886：新建模板页后画布上留下一个被选中的大矩形（其实是根 frame），
+    // 按 Delete 只得到「根节点不能删除」，看着就像删除功能坏了。
+    await mountShell()
+    store.addPageFromTemplate('landing')
+    await flush()
+    expect(store.selectedIds).toEqual([])
+    const before = Object.keys(store.nodes).length
+    keydown('Delete')
+    await flush()
+    expect(store.toasts.some((toast) => toast.text.includes('根'))).toBe(false)
+    expect(Object.keys(store.nodes).length).toBe(before)
+  })
+
+  it('模板页上的真实元素选中后按 Delete 能删掉', async () => {
+    await mountShell()
+    store.addPageFromTemplate('landing')
+    await flush()
+    const target = store.topLevel[0]
+    expect(target).toBeTruthy()
+    store.select(target.id)
+    await flush()
+    expect(wrapper.find('[data-role="toolbar-delete"]').attributes('disabled')).toBeUndefined()
+    keydown('Delete')
+    await flush()
+    expect(store.nodes[target.id]).toBeUndefined()
+  })
+
+  it('只有根被选中时删除按钮不可用，属性面板给出画布提示', async () => {
+    await mountShell()
+    const { textId } = await nestedFixture()
+    store.select(store.rootId)
+    await flush()
+    expect(store.canRemoveSelection).toBe(false)
+    expect(wrapper.find('[data-role="toolbar-delete"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-role="root-hint"]').exists()).toBe(true)
+    store.select(textId)
+    await flush()
+    expect(store.canRemoveSelection).toBe(true)
+  })
 })

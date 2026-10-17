@@ -17,9 +17,11 @@ interface MenuItem {
 
 const items = computed<MenuItem[]>(() => {
   const hasSelection = store.selectedIds.length > 0
-  // 根节点与锁定元素不参与删除：菜单上直接置灰，比点了没反应好（M9 反馈的「删不掉」）
+  // 根节点与锁定元素不参与删除：菜单上直接置灰，比点了没反应好（M9/M11 反馈的「删不掉」）
   const deletable = store.selectedIds.filter((id) => id !== store.rootId && !store.nodes[id]?.meta.locked)
   const lockedOnly = hasSelection && deletable.length === 0
+  const hasRoot = store.selectedIds.includes(store.rootId)
+  const deleteLabel = lockedOnly ? (hasRoot ? '这是页面画布，删不掉' : '元素已锁定，先解锁') : '删除'
   return [
     { key: 'copy', label: '复制', disabled: !hasSelection, run: () => store.copySelection() },
     { key: 'paste', label: '粘贴', disabled: !store.clipboard, run: () => store.pasteClipboard() },
@@ -30,8 +32,8 @@ const items = computed<MenuItem[]>(() => {
     { key: 'paste-style', label: '粘贴样式', disabled: !hasSelection || !store.styleClipboard, run: () => store.pasteStyleToSelection() },
     {
       key: 'delete',
-      label: lockedOnly ? (store.selectedIds.includes(store.rootId) ? '根节点不能删除' : '元素已锁定') : '删除',
-      disabled: !hasSelection || deletable.length === 0,
+      label: deleteLabel,
+      disabled: !store.canRemoveSelection,
       run: () => store.removeSelection(),
     },
   ]

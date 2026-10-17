@@ -232,8 +232,8 @@ onBeforeUnmount(() => {
           type="button"
           class="editor-button editor-button--danger"
           data-role="toolbar-delete"
-          :disabled="store.selectedIds.length === 0"
-          title="删除选中元素 (Delete)"
+          :disabled="!store.canRemoveSelection"
+          :title="store.canRemoveSelection ? '删除选中元素 (Delete)' : '当前选中的是页面画布本身或锁定元素，删不掉'"
           @click="store.removeSelection()"
         >
           🗑 删除
