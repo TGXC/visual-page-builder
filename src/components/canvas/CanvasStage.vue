@@ -9,6 +9,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Box, NodeId, SceneNode } from '@/core/schema/types'
 import type { Handle, SnapGuide } from '@/core/geometry'
 import { applySnap, rectOf, rectsIntersect, resizeBox } from '@/core/geometry'
+import { componentLabel } from '@/core/components'
 import { dropParentAt } from '@/core/dnd'
 import { instanceIdOf } from '@/core/symbols'
 import type { SpacingHint } from '@/core/spacing'
@@ -492,7 +493,7 @@ onBeforeUnmount(() => {
         :data-ancestor-id="node.id"
         @click="store.select(node.id)"
       >
-        {{ node.meta.name || node.type }}
+        {{ node.meta.name || componentLabel(node.type) }}
       </button>
     </div>
     <div

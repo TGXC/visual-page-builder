@@ -139,6 +139,15 @@ export function hasComponent(type: string): boolean {
   return registry.has(type)
 }
 
+/**
+ * 类型的中文名：图层 / 属性面板 / 画布角标 / 面包屑统一走这里。
+ * 用中文 label 是用户 m09506 的反馈（图层里一堆 `text`/`section` 看不懂）；
+ * 没注册的类型（老文档、导入的怪数据）原样返回，总比显示空白强。
+ */
+export function componentLabel(type: string): string {
+  return registry.get(type)?.label ?? type
+}
+
 /** 组件面板面向的清单：不含 `hidden: true` 的内部类型 */
 export function listComponents(): ComponentDescriptor[] {
   return [...registry.values()].filter((item) => item.hidden !== true)

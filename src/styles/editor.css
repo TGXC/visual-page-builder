@@ -103,6 +103,17 @@ button {
   color: var(--studio-primary, #2563eb);
 }
 
+/* 顶栏 / 图层行的删除入口：用户 m09506 反馈「删除故障没修好」，先把入口做显眼 */
+.editor-button--danger {
+  color: var(--studio-danger, #dc2626);
+  border-color: var(--studio-danger, #dc2626);
+}
+
+.editor-button--danger:hover:not(:disabled) {
+  background: var(--studio-danger-weak, #fef2f2);
+  color: var(--studio-danger, #dc2626);
+}
+
 .editor-main {
   display: grid;
   grid-template-columns: 176px minmax(0, 1fr) 300px;
@@ -371,6 +382,16 @@ button {
 .icon-button:hover:not(:disabled) {
   border-color: var(--studio-border, #e2e8f0);
   background: var(--studio-surface, #fff);
+}
+
+.icon-button--danger {
+  opacity: 0.55;
+}
+
+.icon-button--danger:hover:not(:disabled) {
+  color: var(--studio-danger, #dc2626);
+  border-color: var(--studio-danger, #dc2626);
+  opacity: 1;
 }
 
 /* ---------- 页面标签 ---------- */

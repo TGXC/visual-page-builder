@@ -8,7 +8,7 @@ import { computed } from 'vue'
 import type { NodeId, SceneNode } from '@/core/schema/types'
 import { childrenOf } from '@/core/tree'
 import { inlineStyle, safeUrl } from '@/core/codegen'
-import { getComponent, renderCanvasContent } from '@/core/components'
+import { componentLabel, getComponent, renderCanvasContent } from '@/core/components'
 import { HANDLES } from '@/core/geometry'
 import { useEditorStore } from '@/stores/editor'
 
@@ -98,7 +98,7 @@ function onDoubleClick(): void {
         :data-handle="handle"
         :style="{ width: `${handleSize}px`, height: `${handleSize}px` }"
       />
-      <span class="canvas-el__badge">{{ node.meta.name || node.type }}</span>
+      <span class="canvas-el__badge">{{ node.meta.name || componentLabel(node.type) }}</span>
     </template>
   </div>
 </template>

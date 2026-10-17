@@ -4,6 +4,7 @@
  * 多选时只提供批量对齐与删除（与 v1 行为一致）。
  */
 import { computed } from 'vue'
+import { componentLabel } from '@/core/components'
 import type { SceneNode, StyleSpec } from '@/core/schema/types'
 import { rectOf } from '@/core/geometry'
 import { CONTENT_KEYS, STYLE_KEYS } from '@/core/schema/catalog'
@@ -170,7 +171,7 @@ function copyStyle(): void {
 
     <div v-else-if="node" class="prop-form">
       <p class="prop-type" data-role="prop-type">
-        {{ node.type }}
+        {{ componentLabel(node.type) }}
         <span class="prop-type__id">{{ node.id }}</span>
       </p>
 

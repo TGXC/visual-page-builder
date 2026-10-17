@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 图层面板：树形结构、选中、双击改名、显隐、锁定、上下移层 */
 import { computed, nextTick, ref } from 'vue'
+import { componentLabel } from '@/core/components'
 import type { NodeId } from '@/core/schema/types'
 import { treeOf } from '@/core/tree'
 import { useEditorStore } from '@/stores/editor'
@@ -10,7 +11,7 @@ const store = useEditorStore()
 interface Row {
   id: NodeId
   label: string
-  type: string
+  typeLabel: string
   depth: number
   hidden: boolean
   locked: boolean
@@ -22,8 +23,8 @@ const rows = computed<Row[]>(() => {
     for (const item of forest) {
       out.push({
         id: item.node.id,
-        label: item.node.meta.name ?? item.node.type,
-        type: item.node.type,
+        label: item.node.meta.name ?? componentLabel(item.node.type),
+        typeLabel: componentLabel(item.node.type),
         depth,
         hidden: item.node.meta.hidden,
         locked: item.node.meta.locked,
@@ -67,6 +68,15 @@ function toggle(id: NodeId, key: 'hidden' | 'locked'): void {
 function isDisabled(row: Row): boolean {
   return row.hidden
 }
+
+/**
+ * 图层行直接删除（用户 m09506：「删除功能故障依然没有修复」）。
+ * 走的是和 Delete 键、右键菜单同一条 `removeSelection()`，锁定的元素会得到提示而不是静默失败。
+ */
+function remove(row: Row): void {
+  store.select(row.id)
+  store.removeSelection()
+}
 </script>
 
 <template>
@@ -87,7 +97,7 @@ function isDisabled(row: Row): boolean {
         @click="store.select(row.id)"
         @dblclick="startRename(row)"
       >
-        <span class="layer-row__type">{{ row.type }}</span>
+        <span class="layer-row__type">{{ row.typeLabel }}</span>
         <input
           v-if="renamingId === row.id"
           ref="renameInput"
@@ -108,6 +118,16 @@ function isDisabled(row: Row): boolean {
           </button>
           <button type="button" class="icon-button" title="上移一层" :disabled="isDisabled(row)" @click.stop="store.layer(row.id, 'up')">↑</button>
           <button type="button" class="icon-button" title="下移一层" :disabled="isDisabled(row)" @click.stop="store.layer(row.id, 'down')">↓</button>
+          <button
+            type="button"
+            class="icon-button icon-button--danger"
+            :title="row.locked ? '已锁定：先解锁再删除' : '删除这个元素'"
+            data-role="layer-delete"
+            :data-delete-id="row.id"
+            @click.stop="remove(row)"
+          >
+            🗑
+          </button>
         </span>
       </li>
     </ul>

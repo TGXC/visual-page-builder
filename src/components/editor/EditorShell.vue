@@ -228,6 +228,16 @@ onBeforeUnmount(() => {
         <button type="button" class="editor-button" data-role="undo" :disabled="!store.canUndo" title="撤销 (Ctrl+Z)" @click="store.undo()">↺</button>
         <button type="button" class="editor-button" data-role="redo" :disabled="!store.canRedo" title="重做 (Ctrl+Shift+Z)" @click="store.redo()">↻</button>
         <span class="editor-bar__history" data-role="history-position">{{ store.position }}</span>
+        <button
+          type="button"
+          class="editor-button editor-button--danger"
+          data-role="toolbar-delete"
+          :disabled="store.selectedIds.length === 0"
+          title="删除选中元素 (Delete)"
+          @click="store.removeSelection()"
+        >
+          🗑 删除
+        </button>
       </div>
 
       <div class="editor-bar__group">
