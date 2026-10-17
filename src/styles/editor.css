@@ -197,11 +197,34 @@ button {
   text-align: right;
 }
 
-/* 缩放下拉：始终显示当前百分比，点开能选 25%–200% */
+/* 缩放输入框：始终显示当前百分比，也能直接手输任意数值（25%–200%） */
+.editor-bar__zoom {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .editor-input--zoom {
   width: 78px;
+  padding-right: 20px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  appearance: textfield;
+}
+
+/* 去掉 number 输入框的上下箭头：缩小/放大已有 －/＋ 按钮，箭头在这里只会挤占宽度 */
+.editor-input--zoom::-webkit-outer-spin-button,
+.editor-input--zoom::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.editor-bar__unit {
+  position: absolute;
+  right: 8px;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 select.editor-input {

@@ -863,6 +863,8 @@ export const useEditorStore = defineStore('editor', () => {
   }
 
   function setZoom(value: number): void {
+    // 顶栏的缩放输入框允许手输任意百分比：NaN（非数字）直接忽略，否则会把 zoom 污染成 NaN
+    if (!Number.isFinite(value)) return
     zoom.value = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(value * 100) / 100))
   }
 

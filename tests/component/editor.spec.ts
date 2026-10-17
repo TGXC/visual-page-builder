@@ -450,23 +450,36 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect(store.viewport().h).toBe(200)
   })
 
-  it('缩放下拉显示当前百分比（不再固定写 100%），可以直接选档位', async () => {
-    const select = wrapper.find('[data-role="zoom-select"]')
-    expect(select.exists()).toBe(true)
-    expect((select.element as HTMLSelectElement).value).toBe('100')
+  it('缩放输入框显示当前百分比，可以直接输入任意数值，越界夹到 25%–200%', async () => {
+    const input = wrapper.find('[data-role="zoom-input"]')
+    expect(input.exists()).toBe(true)
+    expect((input.element as HTMLInputElement).value).toBe('100')
 
     await wrapper.find('[data-role="zoom-in"]').trigger('click')
-    expect((select.element as HTMLSelectElement).value).toBe('125')
+    expect((input.element as HTMLInputElement).value).toBe('125')
 
-    ;(select.element as HTMLSelectElement).value = '50'
-    await select.trigger('change')
-    expect(store.zoom).toBe(0.5)
+    // 手输非整档（「适应」算出来的 113% 这类值也要能输入）
+    ;(input.element as HTMLInputElement).value = '37'
+    await input.trigger('change')
+    expect(store.zoom).toBe(0.37)
+    expect((input.element as HTMLInputElement).value).toBe('37')
 
-    ;(select.element as HTMLSelectElement).value = '200'
-    await select.trigger('change')
+    // 清空输入不改缩放，只把框恢复成当前值
+    ;(input.element as HTMLInputElement).value = ''
+    await input.trigger('change')
+    expect(store.zoom).toBe(0.37)
+    expect((input.element as HTMLInputElement).value).toBe('37')
+
+    // 越界夹取
+    ;(input.element as HTMLInputElement).value = '900'
+    await input.trigger('change')
     expect(store.zoom).toBe(2)
-    await wrapper.find('[data-role="zoom-in"]').trigger('click')
-    expect(store.zoom).toBe(2)
+    expect((input.element as HTMLInputElement).value).toBe('200')
+
+    ;(input.element as HTMLInputElement).value = '5'
+    await input.trigger('change')
+    expect(store.zoom).toBe(0.25)
+    expect((input.element as HTMLInputElement).value).toBe('25')
   })
 
   it('一键清空：空页面置灰，有元素后点一下清空整页，撤销能整页恢复', async () => {

@@ -49,14 +49,8 @@ const viewportPresets = computed(() =>
   (['desktop', 'tablet', 'mobile'] as const).map((id) => ({ id, ...VIEWPORTS[id] })),
 )
 
-/** 缩放下拉的候选值。用 `适应` 算出来的非整档比例（如 113%）也要能显示出来 */
-const ZOOM_OPTIONS = [25, 50, 75, 100, 125, 150, 175, 200]
+/** 缩放输入框显示的百分比。用 `适应` 算出来的非整档比例（如 113%）也要如实显示 */
 const zoomPercent = computed(() => Math.round(store.zoom * 100))
-const zoomOptions = computed(() => {
-  const list = [...ZOOM_OPTIONS]
-  if (!list.includes(zoomPercent.value)) list.push(zoomPercent.value)
-  return list.sort((a, b) => a - b)
-})
 
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null
@@ -165,9 +159,17 @@ function onViewportHeight(event: Event): void {
   input.value = String(store.viewport().h)
 }
 
-function onZoomSelect(event: Event): void {
-  const select = event.target as HTMLSelectElement
-  store.setZoom(Number(select.value) / 100)
+function onZoomInput(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const raw = input.value.trim()
+  // 空值/非数字：忽略（store 里 NaN 会被挡掉），并把输入框恢复成当前百分比。
+  if (raw !== '') store.setZoom(Number(raw) / 100)
+  input.value = String(zoomPercent.value)
+}
+
+function onZoomKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter') return
+  ;(event.target as HTMLInputElement).blur()
 }
 
 function onExportJson(): void {
@@ -318,15 +320,22 @@ onBeforeUnmount(() => {
         >
           －
         </button>
-        <select
-          class="editor-input editor-input--zoom"
-          data-role="zoom-select"
-          title="画布缩放 25%–200%，每次 25%"
-          :value="String(zoomPercent)"
-          @change="onZoomSelect"
-        >
-          <option v-for="percent in zoomOptions" :key="percent" :value="String(percent)">{{ percent }}%</option>
-        </select>
+        <span class="editor-bar__zoom">
+          <input
+            class="editor-input editor-input--zoom"
+            data-role="zoom-input"
+            type="number"
+            min="25"
+            max="200"
+            step="1"
+            inputmode="numeric"
+            title="画布缩放 25%–200%：可直接输入百分比，回车或失焦生效"
+            :value="zoomPercent"
+            @change="onZoomInput"
+            @keydown="onZoomKeydown"
+          >
+          <span class="editor-bar__unit">%</span>
+        </span>
         <button
           type="button"
           class="editor-button"

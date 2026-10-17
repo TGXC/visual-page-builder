@@ -225,6 +225,15 @@ npm run build
 **验收**：把原「视口切换与画布缩放互相独立」1 例拆成 5 例（尺寸显示宽 × 高、视口高度单独可改、高度越界夹取、缩放下拉切换与上下限、一键清空 + Ctrl+Z 撤销），全量 `npm test` 52 文件 / 591 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.23 kB / gzip 98.12，CSS 29.20 kB / gzip 5.64）、`test:perf` 布局 5.12ms / 导出 128.84ms（CSS 40.09 / HTML 44.17 / 整站 42.25 / ZIP 6.89ms）、`test:smoke` 通过（`mediaQueries 2` / `layoutBoxes 10` / `zipBytes 6905`）。**未做**：视口高度不参与响应式断点（断点只按 `minWidth` 判定）也不影响导出媒体查询；一键清空只清当前页面元素，不清页面背景/主题/尺寸，也不是「清空项目」；画布与导出仍是两套盒模型（导出没有那层 padding/flex，`layout.padding` 也不参与导出）；单行控件居中按 `data-type` 白名单维护，注册新组件类型时要记得加进去。
 
 
+### M15 缩放百分比可输入（计划外，用户第七轮反馈）
+
+**触发**：用户第七轮反馈「百分比改为我能输入具体数值」。上一轮只是把写死的 `100%` 换成固定档位下拉，能看见状态但选不到 113% 这类中间值。
+
+**做了什么**：把 `[data-role="zoom-select"]` 下拉换成 `[data-role="zoom-input"]` 数字输入框（`min=25 max=200 step=1`，右侧绝对定位 `%` 后缀，隐藏 number 自带的上下箭头），`@change` 时 `store.setZoom(Number(raw)/100)` 再把框里的值回写成夹取后的真实百分比，回车触发 blur 让 `@change` 生效；`－`/`＋`（每次 25%）与「适应」保持不变；`store.setZoom()` 增加 `Number.isFinite` 守卫（此前传入 `NaN` 会把 `zoom` 污染成 `NaN`，画布宽度与状态栏一起坏掉）（D73）。
+
+**验收**：`tests/component/editor.spec.ts` 的缩放用例改成「显示当前百分比 → 手输非整档 37% → 清空输入不改缩放 → 越界夹到 200% / 25%」，全量 `npm test` 52 文件 / 591 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.33 kB / gzip 98.14，CSS 29.57 kB / gzip 5.72）、`test:perf` 布局 4.96ms / 导出 139.99ms（CSS 41.98 / HTML 44.83 / 整站 41.71 / ZIP 2.84ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 6905`）。**未做**：没有历史值记忆、没有输入防抖；越界值静默夹取不提示；缩放范围仍是 25%–200%，超宽设计稿没法缩到 10% 全览。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。
