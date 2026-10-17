@@ -42,6 +42,13 @@ interface Interaction {
   startClientY: number
   startLocalX: number
   startLocalY: number
+  /**
+   * 按下那一刻的缩放比例。整个拖拽期间都用它把「屏幕位移」换算成「设计像素位移」，
+   * 而不是每次 pointermove 重新 `getBoundingClientRect()` 再除一遍：
+   * 拖动过程中画布容器可能因为滚动条出现/消失、页面居中方式变化而位移或改变宽度，
+   * 用实时 rect 换算会让元素相对鼠标「越拖越偏」，缩放比例越大偏得越明显。
+   */
+  scale: number
   handle: Handle | null
   ids: NodeId[]
   boxes: Map<NodeId, Box>
@@ -128,6 +135,19 @@ function localPoint(clientX: number, clientY: number): { x: number; y: number } 
   return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale }
 }
 
+/**
+ * 拖拽过程中的设计坐标：从按下点（`startLocal`）累加屏幕位移 ÷ 按下时的缩放比例。
+ * 不用实时 `localPoint()`，这样画布容器中途位移（滚动条出现、居中被挤动）也不会让元素跟着鼠标漂：
+ * 元素相对鼠标的位置在整个拖拽期间保持不变。
+ */
+function dragPoint(active: Interaction, clientX: number, clientY: number): { x: number; y: number } {
+  const scale = active.scale || 1
+  return {
+    x: active.startLocalX + (clientX - active.startClientX) / scale,
+    y: active.startLocalY + (clientY - active.startClientY) / scale,
+  }
+}
+
 /** 磁吸参考线：同级节点的六条边 + 画布四条边 */
 function snapTargets(ids: NodeId[]): { x: number[]; y: number[] } {
   const x = [0, vw.value / 2, vw.value]
@@ -208,13 +228,15 @@ function beginMove(event: PointerEvent, node: SceneNode): void {
     const target = store.nodes[id]
     if (target) boxes.set(id, rectOf(target))
   }
+  const start = localPoint(event.clientX, event.clientY)
   interaction = {
     mode: 'move',
     pointerId: event.pointerId,
     startClientX: event.clientX,
     startClientY: event.clientY,
-    startLocalX: localPoint(event.clientX, event.clientY).x,
-    startLocalY: localPoint(event.clientX, event.clientY).y,
+    startLocalX: start.x,
+    startLocalY: start.y,
+    scale: store.zoom,
     handle: null,
     ids,
     boxes,
@@ -250,13 +272,15 @@ function onStagePointerDown(event: PointerEvent): void {
     const targetId = resolved.id
     const node = resolved.node
     store.select(targetId)
+    const start = localPoint(event.clientX, event.clientY)
     interaction = {
       mode: 'resize',
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      startLocalX: localPoint(event.clientX, event.clientY).x,
-      startLocalY: localPoint(event.clientX, event.clientY).y,
+      startLocalX: start.x,
+      startLocalY: start.y,
+      scale: store.zoom,
       handle: handleEl.getAttribute('data-handle') as Handle,
       ids: [targetId],
       boxes: new Map([[targetId, rectOf(node)]]),
@@ -303,6 +327,7 @@ function startMarquee(event: PointerEvent): void {
     startClientY: event.clientY,
     startLocalX: point.x,
     startLocalY: point.y,
+    scale: store.zoom,
     handle: null,
     ids: [],
     boxes: new Map(),
@@ -353,11 +378,18 @@ function onStagePointerMove(event: PointerEvent): void {
   const dy = event.clientY - interaction.startClientY
   if (!interaction.active && interaction.mode !== 'marquee' && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
   interaction.active = true
+  // 拖拽几何一律用「按下时的 rect + 按下时的缩放」推算，见 `dragPoint()` 上的注释
+  const grabbed = dragPoint(interaction, event.clientX, event.clientY)
 
   if (interaction.mode === 'marquee') {
-    const x = Math.min(interaction.startLocalX, point.x)
-    const y = Math.min(interaction.startLocalY, point.y)
-    marquee.value = { x, y, w: Math.abs(point.x - interaction.startLocalX), h: Math.abs(point.y - interaction.startLocalY) }
+    const x = Math.min(interaction.startLocalX, grabbed.x)
+    const y = Math.min(interaction.startLocalY, grabbed.y)
+    marquee.value = {
+      x,
+      y,
+      w: Math.abs(grabbed.x - interaction.startLocalX),
+      h: Math.abs(grabbed.y - interaction.startLocalY),
+    }
     return
   }
 
@@ -365,8 +397,8 @@ function onStagePointerMove(event: PointerEvent): void {
     const box = resizeBox(
       interaction.startBox,
       interaction.handle,
-      point.x - interaction.startLocalX,
-      point.y - interaction.startLocalY,
+      grabbed.x - interaction.startLocalX,
+      grabbed.y - interaction.startLocalY,
       { minW: EDGE, minH: EDGE, keepRatio: event.shiftKey && interaction.handle.length === 2 },
     )
     const target = interaction.ids[0]
@@ -379,13 +411,13 @@ function onStagePointerMove(event: PointerEvent): void {
   // 移动：先算包围盒的目标位置，吸附后再整体位移
   const candidate: Box = {
     ...interaction.startBox,
-    x: interaction.startBox.x + (point.x - interaction.startLocalX),
-    y: interaction.startBox.y + (point.y - interaction.startLocalY),
+    x: interaction.startBox.x + (grabbed.x - interaction.startLocalX),
+    y: interaction.startBox.y + (grabbed.y - interaction.startLocalY),
   }
   const snapped = applySnap(candidate, snapTargets(interaction.ids))
   guides.value = snapped.guides
   // 落点容器和当前父级不同才算「换父级」：拖到自己容器里仍然是普通移动
-  const container = containerAt(point, interaction.ids)
+  const container = containerAt(grabbed, interaction.ids)
   const sameParent = interaction.ids.every((id) => (store.nodes[id]?.parentId ?? store.rootId) === container)
   dropTarget.value = container && !sameParent ? container : null
   const shiftX = snapped.box.x - interaction.startBox.x

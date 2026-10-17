@@ -127,6 +127,35 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect(store.nodes[id].layout.position).toEqual({ x: 100, y: 100 })
   })
 
+  it('缩放 50% 时拖动 100 屏幕像素 = 移动 200 设计像素（元素跟着鼠标走）', async () => {
+    const id = store.insertComponent('text', { position: { x: 100, y: 100 } })
+    store.setZoom(0.5)
+    await flush()
+    down(nodeEl(wrapper, id), 140, 140)
+    move(240, 140)
+    up(240, 140)
+    expect(store.nodes[id].layout.position).toEqual({ x: 300, y: 100 })
+  })
+
+  it('拖动期间画布容器位移（滚动条出现/页面被挤动）不会让元素相对鼠标漂移', async () => {
+    const id = store.insertComponent('text', { position: { x: 100, y: 100 } })
+    await flush()
+    const page = wrapper.find('.canvas-page').element as HTMLElement
+    let pageLeft = 0
+    page.getBoundingClientRect = () => {
+      const rect = { left: pageLeft, top: 0, width: 1440, height: 900 } as DOMRect
+      return rect
+    }
+    down(nodeEl(wrapper, id), 140, 140)
+    move(240, 140)
+    // 拖到一半时画布容器因为滚动条出现被挤动 120px
+    pageLeft = 120
+    move(340, 140)
+    up(340, 140)
+    // 屏幕位移 200px ⇒ 设计位移 200px，而不是被容器位移吃掉 120px
+    expect(store.nodes[id].layout.position).toEqual({ x: 300, y: 100 })
+  })
+
   it('拖动时显示到左右邻居的间距，等距时高亮，放手后消失', async () => {
     const left = store.insertComponent('rect', { position: { x: 100, y: 100 } })
     const right = store.insertComponent('rect', { position: { x: 300, y: 100 } })

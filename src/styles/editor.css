@@ -769,6 +769,19 @@ textarea.editor-input {
   justify-content: center;
 }
 
+/*
+ * 纯文字元素（文本 / 标题）：用户 m11339「文本组件的文本上下边框的间距依然偏下」。
+ * 原因是默认内容盒给上下各 8px 内边距，而行高（1.4em）往往已经比「元素高 − 16px」大，
+ * 溢出的部分从下面裁掉 → 看着「上边距 8px、下边距 0，文字偏下」。
+ * 这里改成：纵向只留 2px 缓冲、内容整体垂直居中，上下间距就对称了；
+ * 多行文本同样居中，文字更多时上下等量裁切而不是只裁底部。
+ */
+.canvas-el[data-type='text'] > .canvas-el__content,
+.canvas-el[data-type='heading'] > .canvas-el__content {
+  justify-content: center;
+  padding: 2px 8px;
+}
+
 /* 复选/单选是一排可换行的选项，不是纵向列表 */
 .canvas-el[data-type='checkbox'] > .canvas-el__content,
 .canvas-el[data-type='radio'] > .canvas-el__content {

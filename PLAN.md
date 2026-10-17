@@ -244,6 +244,16 @@ npm run build
 
 **验收**：`npm test` 52 文件 / 592 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.35 kB / gzip 98.15，CSS 29.60 kB / gzip 5.73）、`test:perf` 布局 4.25ms / 导出 116.54ms（CSS 35.47 / HTML 39.23 / 整站 37.83 / ZIP 5.58ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 6905`）。**未做**：设备间自适应仍未实现（现状只有手动断点覆盖；候选路线 A 整页等比 fit / B 切断点自动生成覆盖 / C 容器流式布局，尚未选型）；正确性依赖「外层尺寸 = 设计尺寸 × zoom」与「原点在左上角」两个约定；`transform-origin` 写在内联与 CSS 两处；jsdom 无布局，测试只能断言内联样式，真实像素对齐靠浏览器目测。
 
+### M17 拖拽几何快照与文本纵向居中（计划外，用户第九轮反馈）
+
+**触发**：用户第九轮反馈「文本组件的文本上下边框的间距依然偏下，在不同的尺寸下，当我用鼠标拖动组件时，组件与鼠标的相对位置会改变」。
+
+**根因**：①文本/标题的内容盒上下各 8px 内边距，而 `line-height: 1.4` 的行盒常比「元素高 − 16px」高，溢出被 `overflow: hidden` 从下面裁掉 → 上边距 8px、下边距 0，文字偏下；②拖拽时每次 `pointermove` 都用 `localPoint()` 实时读 `.canvas-page` 的矩形再除以当前 zoom 算绝对坐标；拖拽期间画布容器一旦位移（滚动条出现/消失把居中的页面挤动、窗口尺寸变化），「现在原点」与「按下原点」不同，位移里多算一份容器位移，缩放越大漂移越明显。
+
+**做了什么**：`CanvasStage.vue` 的 `Interaction` 增加 `scale`（按下时的 zoom），新增 `dragPoint(active, clientX, clientY)` = `startLocal + (client − startClient) / scale`，移动/拉手柄/框选三条路径全部改用它（`store.pointer` 悬停指示仍用实时 `localPoint()`）；`editor.css` 给 `text` / `heading` 内容盒 `justify-content: center; padding: 2px 8px`；`tests/component/editor.spec.ts` 新增 2 例：「50% 缩放时拖 100 屏幕像素 = 移动 200 设计像素」「拖到一半画布被挤动 120px，元素仍跟手」（D75 / D76）。
+
+**验收**：`npm test` 52 文件 / 594 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.51 kB / gzip 98.23，CSS 29.73 kB / gzip 5.74）、`test:perf` 布局 6.47ms / 导出 132.17ms（CSS 40.30 / HTML 41.55 / 整站 43.02 / ZIP 6.51ms）、`test:smoke` 通过。**未做**：拖拽期间坐标系被冻结（拖到一半滚动画布不会跟着滚动后的坐标系走，这是有意的）；`localPoint()` 与 `dragPoint()` 两套坐标语义并存；文本居中只是 CSS 修正、jsdom 锁不住，仍靠浏览器目测，多行文本在画布上是垂直居中而导出侧仍是顶部对齐；画布与导出的盒模型仍是两套。
+
 
 ## 4. 数据模型约定（v2 关键约束）
 
