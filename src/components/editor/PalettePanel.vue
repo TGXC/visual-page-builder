@@ -39,6 +39,23 @@ const groups = computed<{ key: string; label: string; items: ComponentDescriptor
     .map((group) => ({ key: group.category, label: group.label, items: group.items }))
 })
 
+/**
+ * 分类折叠（用户 m10495：「组件似乎过于多了」+ 一行两个名字显示不全）。
+ * 默认只展开布局 / 基础 / 展示，表单 12 个和媒体 5 个收起来；搜索时全部展开。
+ * 注意用 v-show 而不是 v-if：搜索、编辑器测试都按 DOM 里的组件节点计数。
+ */
+const COLLAPSED_BY_DEFAULT = new Set(['form', 'media'])
+const openGroups = ref<Record<string, boolean>>({})
+
+function isOpen(key: string): boolean {
+  if (key === 'search' || keyword.value.trim() !== '') return true
+  return openGroups.value[key] ?? !COLLAPSED_BY_DEFAULT.has(key)
+}
+
+function toggle(key: string): void {
+  openGroups.value = { ...openGroups.value, [key]: !isOpen(key) }
+}
+
 function onDragStart(event: DragEvent, type: string): void {
   event.dataTransfer?.setData('text/plain', type)
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
@@ -61,8 +78,18 @@ function add(type: ComponentType): void {
     />
 
     <div v-for="group in groups" :key="group.key" class="palette-group" :data-category="group.key">
-      <p class="palette-group__label">{{ group.label }}</p>
-      <div class="palette-grid">
+      <button
+        type="button"
+        class="palette-group__header"
+        :data-role="`palette-toggle-${group.key}`"
+        :aria-expanded="isOpen(group.key)"
+        @click="toggle(group.key)"
+      >
+        <span class="palette-group__caret">{{ isOpen(group.key) ? '▾' : '▸' }}</span>
+        <span class="palette-group__label">{{ group.label }}</span>
+        <span class="palette-group__count">{{ group.items.length }}</span>
+      </button>
+      <div v-show="isOpen(group.key)" class="palette-grid">
         <button
           v-for="item in group.items"
           :key="item.type"

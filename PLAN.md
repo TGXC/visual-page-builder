@@ -203,6 +203,17 @@ npm run build
 **验收**：新增 `tests/component/contextmenu.spec.ts` 5 例（右键元素可删、右键根不改选区且置灰带 title、已选中元素后右键空白仍可删、右键锁定元素置灰、根被程序性选中时文案仍是「删除」）+ `selection.spec.ts` 增 2 例（模板页 `.canvas-page` 有 `background` 且根元素没有、网格层是 `.canvas-page` 首子元素），全量 `npm test` 52 文件 / 584 用例、覆盖率 97.18 / 90.56 / 97.37 / 99.35、`lint` 0、`build` 0 类型错误（JS 281.01 kB / gzip 96.88，CSS 22.45 kB 不变）、`test:perf` 布局 4.95ms / 导出 131.58ms、`test:smoke` 通过（`inlineStyles 0` / `mediaQueries 2` / `zipBytes 6905`）。**未做**：根 frame 的底色画布与导出仍是两条路径；根圆角搬到 `.canvas-page` 但容器没有 `overflow: hidden`（根圆角很大时子元素会溢出圆角）；右键空白不再选根，所以改页面背景仍得走图层/主题面板；网格线颜色固定浅灰，深色模板页上偏亮，也没有隐藏网格开关。
 
 
+### M13 组件面板与视觉层次（计划外，用户第五轮反馈）
+
+**触发**：用户第五轮反馈「我们的平台组件似乎过多了，且一行两个组件选项会导致组件名称显示不全，建议改成一行一个，主题方面英文太多了，而且平台几乎所有的输入框边框太黑了，弄成浅灰色，且整个平台一眼望去白茫茫一片，我希望有点层次感」。
+
+**现状/根因**：① 左栏只有 176px 却放两列组件，`.palette-item__label` 只能靠省略号截断，40 个组件平铺又显得多；② `.editor-input` 这个类在 CSS 里**从来没有规则**，AI 面板 / 主题面板 / 历史 / 分享 / 页模板下拉 / 顶栏视口宽度全都在吃浏览器默认的深灰 2px 边框；③ 主题面板直接显示 `color-primary` 这类英文 token 名；④ 顶栏、左右侧栏、属性面板全是白底 + 1px 边框，画布区分隔又很淡，整屏白成一片，而 `tokens.css` 里还缺 `--studio-text-muted` / `--studio-surface-2`，全靠 `editor.css` 的 fallback 兜着。
+
+**做了什么**：① 组件面板改单列（`grid-template-columns: minmax(0, 1fr)`，左栏 176px → 200px），分类标题变成可点开的横条（▾/▸ + 名字 + 个数，`data-role="palette-toggle-<key>"`），默认收起表单（12 个）与媒体（5 个），搜索时全部展开；折叠用 `v-show` 保住 DOM，40 个 `.palette-item`、搜索行为与自定义组件断言都不受影响（D67）；② `core/theme` 新增纯函数 `tokenLabel()`（后缀 → 中文再拼组名，得到「主色 / 小圆角 / 大间距」，认不出的后缀回落「圆角·huge」），主题面板主标题显示中文名、原始英文名以等宽小字留在下面供样式引用（D69）；③ 补共享 `.editor-input` 规则（1px 浅灰 `#dbe2ea`、focus 主色边 + 光晕、hover 加深、`select` 自绘 chevron、`textarea` 自适应、`.editor-input--width`），`.prop-input` 同步；④ `tokens.css` 重写并补齐 `--studio-text-muted` / `--studio-surface-2/3` / `--studio-border-soft/strong` / `--studio-input-border` / `--studio-shadow-sm`，再给外壳加层次：顶栏白底 + 投影、左右侧栏浅灰、`.panel` 变白卡片（细边 + 轻投影 + 标题分隔线）、画布区内阴影 + 更深的纸张投影、状态栏浅灰、选中页签白底 + 主色下划线（D68）。
+
+**验收**：新增 3 例（`tests/unit/theme.spec.ts` 的 `tokenLabel` 全量映射与回落、`tests/component/editor.spec.ts` 的分类折叠/点开/搜索全开、`tests/component/m8.spec.ts` 的主题变量中文名 + 英文原名保留），全量 `npm test` 52 文件 / 587 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 282.38 kB / gzip 97.54，CSS 25.91 kB / gzip 5.10）、`test:perf` 布局 4.78ms / 导出 117.87ms、`test:smoke` 通过（`mediaQueries 2` / `layoutBoxes 10` / `zipBytes 6905`）。**未做**：折叠状态不持久化（刷新回默认），也没有做搜索置顶/常用组件；主题中文名只影响显示，样式引用与导出仍是英文 token；输入框样式分在 `.editor-input` / `.prop-input` 两处，`color`/`range` 这类原生控件没统一；层次感靠 tokens + `editor.css` 里的硬编码颜色，没有浅色/深色两套主题；网格线颜色仍固定浅灰。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

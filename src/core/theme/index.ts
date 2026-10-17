@@ -37,6 +37,59 @@ export function groupOfToken(name: string): ThemeTokenGroup {
   return found ?? OTHER_TOKEN_GROUP
 }
 
+/** 颜色 token 的常见后缀（`color-primary` → 主色） */
+const COLOR_SUFFIX_LABELS: Record<string, string> = {
+  primary: '主色',
+  text: '正文颜色',
+  muted: '弱化文字',
+  bg: '背景色',
+  surface: '面板底色',
+  border: '边框色',
+  danger: '危险色',
+  warning: '警告色',
+  success: '成功色',
+  shadow: '阴影色',
+}
+
+/** 尺寸 token 的常见后缀（`sm` / `md` / `lg` …） */
+const SIZE_SUFFIX_LABELS: Record<string, string> = {
+  xs: '微小',
+  sm: '小',
+  md: '中',
+  lg: '大',
+  xl: '特大',
+}
+
+/** 尺寸组的名词（`radius-sm` → 小圆角、`space-md` → 中间距） */
+const SIZE_GROUP_NOUNS: Record<string, string> = {
+  'font-size': '字号',
+  space: '间距',
+  radius: '圆角',
+  shadow: '阴影',
+}
+
+/**
+ * 主题面板显示用的中文说明（用户 m10495：主题面板英文太多）。
+ * 只用于「给人看」的标题，样式里引用 token 仍然要写原始英文名（`$color-primary`）。
+ * 认不出的后缀回落成「分组·后缀」，不猜语义。
+ */
+export function tokenLabel(name: string): string {
+  const group = groupOfToken(name)
+  const prefixed = name === group.id || name.startsWith(`${group.id}-`)
+  const suffix = prefixed ? (name === group.id ? '' : name.slice(group.id.length + 1)) : name
+  if (group.id === 'color') {
+    const color = COLOR_SUFFIX_LABELS[suffix]
+    if (color) return color
+    return suffix === '' ? group.label : `${group.label}·${suffix}`
+  }
+  if (prefixed) {
+    const size = SIZE_SUFFIX_LABELS[suffix]
+    const noun = SIZE_GROUP_NOUNS[group.id]
+    if (size && noun) return `${size}${noun}`
+  }
+  return suffix === '' ? group.label : `${group.label}·${suffix}`
+}
+
 /** `$color-primary` 这种引用形态（其它一律当普通样式值） */
 export function isTokenRef(value: unknown): value is string {
   if (typeof value !== 'string' || !value.startsWith(TOKEN_PREFIX)) return false

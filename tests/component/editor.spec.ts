@@ -68,6 +68,29 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect(wrapper.find('.palette-empty').exists()).toBe(true)
   })
 
+  it('组件分类默认收起表单/媒体，点标题展开，搜索时自动全部展开', async () => {
+    const gridOf = (category: string) =>
+      wrapper.find(`.palette-group[data-category="${category}"] .palette-grid`).element as HTMLElement
+
+    // 默认：布局 / 基础 / 展示展开，表单（12 个）和媒体（5 个）收起来
+    expect(gridOf('layout').style.display).not.toBe('none')
+    expect(gridOf('basic').style.display).not.toBe('none')
+    expect(gridOf('display').style.display).not.toBe('none')
+    expect(gridOf('form').style.display).toBe('none')
+    expect(gridOf('media').style.display).toBe('none')
+    // 收起只是 v-show：节点还在 DOM 里（搜索/计数/测试都靠它）
+    expect(wrapper.findAll('.palette-group[data-category="form"] .palette-item')).toHaveLength(12)
+
+    await wrapper.find('[data-role="palette-toggle-form"]').trigger('click')
+    expect(gridOf('form').style.display).not.toBe('none')
+
+    const search = wrapper.find('[data-role="palette-search"]')
+    await search.setValue('按钮')
+    const grids = wrapper.findAll('.palette-grid')
+    expect(grids.length).toBeGreaterThan(0)
+    expect(grids.every((grid) => (grid.element as HTMLElement).style.display !== 'none')).toBe(true)
+  })
+
   it('组件面板列出 6 套模板', () => {
     expect(wrapper.findAll('.template-item').map((item) => item.attributes('data-template'))).toEqual([
       'login',

@@ -12,6 +12,7 @@ import {
   setToken,
   themeTokenEntries,
   themeVariablesCss,
+  tokenLabel,
   tokenNameOf,
   tokenRef,
 } from '@/core/theme'
@@ -126,5 +127,29 @@ describe('M8 主题 token（core/theme，纯逻辑）', () => {
   it('没引用 token 的文档，导出结果里不出现 :root（保持既有快照稳定）', () => {
     const doc = makeDoc()
     expect(generatePageCss(doc, doc.activePageId)).not.toContain(':root{')
+  })
+
+  it('tokenLabel：默认 token 都有人能看懂的中文名，认不出的后缀如实回落', () => {
+    // 颜色组：常见后缀直接给语义名
+    expect(tokenLabel('color-primary')).toBe('主色')
+    expect(tokenLabel('color-text')).toBe('正文颜色')
+    expect(tokenLabel('color-muted')).toBe('弱化文字')
+    expect(tokenLabel('color-bg')).toBe('背景色')
+    expect(tokenLabel('color-surface')).toBe('面板底色')
+    // 尺寸组：小/中/大 + 组名词
+    expect(tokenLabel('radius-sm')).toBe('小圆角')
+    expect(tokenLabel('radius-md')).toBe('中圆角')
+    expect(tokenLabel('space-lg')).toBe('大间距')
+    expect(tokenLabel('font-size-xl')).toBe('特大字号')
+    expect(tokenLabel('shadow-sm')).toBe('小阴影')
+    // 认不出的不猜：组名·后缀；其它组只带原始名
+    expect(tokenLabel('color-brand')).toBe('颜色·brand')
+    expect(tokenLabel('radius-huge')).toBe('圆角·huge')
+    expect(tokenLabel('color')).toBe('颜色')
+    expect(tokenLabel('brand')).toBe('其他·brand')
+    // 默认主题的每个 token 都能翻译，面板上不会漏英文
+    for (const name of Object.keys(DEFAULT_THEME_TOKENS)) {
+      expect(tokenLabel(name)).not.toContain(name)
+    }
   })
 })

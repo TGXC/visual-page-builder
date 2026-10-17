@@ -548,4 +548,28 @@
 
 **代价**：根 frame 的底色不再由元素自身的行内样式决定，画布与导出因此在「根节点背景」这一处走了两条路径（导出仍由 `generatePageCss` 按节点出规则，结果一致）；根 frame 若有非零 `radius`，圆角现在也画在容器上，容器不 `overflow: hidden`，极端圆角下子元素会溢出圆角；右键空白时「删除」保持置灰可用但不会选根，用户想删页面本身仍要用页签上的 ✕。
 
+## D67：组件面板改单列 + 分类可折叠（默认收起表单/媒体，搜索时全展开）
+
+**决定**：`.palette-grid` 从两列改单列（`grid-template-columns: minmax(0, 1fr)`），左栏 176px → 200px；每个分类标题变成一个按钮 `data-role="palette-toggle-<key>"`（▾/▸ + 名字 + 项数），`COLLAPSED_BY_DEFAULT = new Set(['form', 'media'])` 决定默认收起哪些分类；点标题切换 `openGroups`，搜索词非空时 `isOpen()` 恒真。展开/收起用 `v-show`，**不能改成 `v-if`**。
+
+**理由**：用户 m10495 反馈「组件似乎过多了，且一行两个组件选项会导致组件名称显示不全，建议改成一行一个」。40 个组件平铺在 176px 的两列里，`.palette-item__label` 只能靠省略号截断；单列 + 折叠把首屏从 40 项降到 24 项（布局 8 + 基础 8 + 展示 8 展开，表单 12 / 媒体 5 收起）。`v-show` 是因为既有测试按 DOM 计数（40 个 `.palette-item`、分类数组、自定义组件、搜索过滤）断言，`v-if` 会让隐藏分类从 DOM 里消失、连带搜索与计数全坏。
+
+**代价**：折叠状态只存在组件内存里，刷新回默认；DOM 里始终挂着 40 个组件节点（只是隐藏），跟「按需渲染」比没省内存；分类标题多了一行，左栏整体比原来长。
+
+## D68：`.editor-input` 收进共享 CSS，`tokens.css` 补齐被 fallback 的变量，外壳加底色/阴影层次
+
+**决定**：在 `editor.css` 补一段共享 `.editor-input` 规则（高 28、1px `--studio-input-border` #dbe2ea、白底、圆角 6、hover 加深、focus 主色边 + `--studio-ring`、`select` 自绘 chevron、`textarea` 自适应、`.editor-input--width` 66px），`.prop-input` 同步；`tokens.css` 重写并补齐 `--studio-text-muted` / `--studio-surface-2` / `--studio-surface-3` / `--studio-border-soft` / `--studio-border-strong` / `--studio-input-border` / `--studio-shadow-sm` / `--studio-warning`；再调外壳：顶栏白底 + 阴影、侧栏与状态栏浅灰 `--studio-surface-2`、`.panel` 变白卡片、`.canvas-stage` 内阴影、`.canvas-page` 双层投影、选中页签白底 + 主色下划线。
+
+**理由**：用户 m10495 反馈「几乎所有的输入框边框太黑了，弄成浅灰色」+「一眼望去白茫茫一片，我希望有点层次感」。前者的真因是 `.editor-input` 这个类在 CSS 里**从来没有规则**——AI 面板、主题面板、历史、分享、页面模板下拉、顶栏视口宽度全在吃浏览器默认的深灰 2px 边框，只有 `.prop-input` 有样式；后者的真因是顶栏 / 侧栏 / 面板 / 画布全是同一个白底或近白底，且 `tokens.css` 缺 `--studio-text-muted` / `--studio-surface-2`，这些变量一直靠 `editor.css` 里的 fallback 生效。
+
+**代价**：输入框样式分散在 `.editor-input` 与 `.prop-input` 两处，没抽成设计系统组件；`type="color"` / `range` 这类原生控件仍吃浏览器默认样式；层次感是手写的底色/阴影取值，没有浅色/深色两套主题，将来接主题切换要一起改；`--studio-bg` 从 `#f3f4f6` 调到 `#eef1f6`，画布区观感随之变化。
+
+## D69：主题变量显示中文说明，原始英文名保留在下方
+
+**决定**：`core/theme` 新增纯函数 `tokenLabel(name)`：先按 `groupOfToken()` 分组，颜色组用 `COLOR_SUFFIX_LABELS` 映射后缀（primary 主色 / text 正文颜色 / muted 弱化文字 / bg 背景色 / surface 面板底色 / border 边框色 / danger 危险色 / warning 警告色 / success 成功色 / shadow 阴影色），尺寸组用 `SIZE_SUFFIX_LABELS`（xs 微小 … xl 特大）+ `SIZE_GROUP_NOUNS`（字号 / 间距 / 圆角 / 阴影）拼成「小圆角」「特大字号」这类中文名，认不出的后缀回落「组名·后缀」。`ThemePanel` 主标题显示 `tokenLabel()`，同一行的 `<code class="theme-token__raw">` 保留原始英文名；面板标题也从「主题 token」改成「主题变量」。
+
+**理由**：用户 m10495 反馈「主题方面英文太多了」。但英文 token 名是**要写进样式**的（`$color-primary`），直接替换成中文会让用户没法引用；所以中文只做「这行是什么意思」的说明，真正要复制的英文名留在下面同期可见。
+
+**代价**：中文名只影响显示，样式引用 / 导出 / `themeVariablesCss()` 仍是英文；自定义 token（如 `brand`）认不出后缀，显示成「其他·brand」；store 的动作名与 toast 仍是「主题 token：xxx」（测试按这个断言，没跟着改）。
+
 

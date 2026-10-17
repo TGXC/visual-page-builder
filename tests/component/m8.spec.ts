@@ -72,6 +72,14 @@ describe('M8：主题 / 版本 / 分享面板', () => {
     expect(wrapper.find('[data-role="theme-missing"]').text()).toContain('color-primary')
   })
 
+  it('主题面板：变量名显示中文说明，英文原名仍然可见（样式里要引用它）', () => {
+    const rows = wrapper.findAll('[data-role="theme-token"]')
+    const primary = rows.find((row) => row.text().includes('color-primary'))
+    expect(primary).toBeTruthy()
+    expect(primary!.find('[data-role="theme-token-label"]').text()).toBe('主色')
+    expect(primary!.find('code').text()).toBe('color-primary')
+  })
+
   it('版本面板：保存版本 → 改成别的样子 → 回滚逐字节一致 → 回滚本身可撤销', async () => {
     const original = JSON.stringify(store.doc)
     await wrapper.find('[data-role="version-name"]').setValue('改版前')
