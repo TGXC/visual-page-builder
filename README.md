@@ -5,7 +5,7 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）已完成。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -121,6 +121,23 @@ PLAN 验收「导出 HTML 无内联样式堆叠、类名可读、能被真实 Vu
 
 冒烟用例跑在 Node 里（`node:fs` / `process` / `Buffer`），所以它有独立的 `tsconfig.smoke.json`（`types: ["node"]`，`tsconfig.app.json` 用 `exclude` 把它挡在外面）——浏览器侧的代码依旧拿不到 Node 全局类型。冒烟配置单独一个 `vitest.smoke.config.ts` 也是必须的：Vitest 的 `mergeConfig` 会拼接 `include`，合并进主配置反而会把冒烟用例排除掉；另外它必须显式写 `pool: 'threads'`，Vitest 5 默认的 forks 会 `spawn EPERM`（见下面第 4 条沙箱限制）。
 
+## M6 已经做了什么：AI 助手（Mock 优先 + 只产出补丁）
+
+M6 的判据是「**不配 key 也能用规则检查与修复；AI 产出的东西一律先过本地校验，失败不污染文档**」。所以 AI 在架构上只是一条**供应商 → 结构化 JSON → 三层校验 → 补丁/文档历史**的管线，规则检查完全是 `core/assistant` 的纯函数：
+
+| # | 能力 | 实现 | 测试证据 |
+| --- | --- | --- | --- |
+| 1 | 供应商抽象（Mock 必备，真实端点可选） | `AiProvider { id, label, ready, complete(request) }`；`createMockProvider()` 是确定性模板（离线可用、`ready: true`），`createOpenAIProvider()` 走 `/chat/completions` + `response_format: json_object`，key 只进请求头 | `tests/unit/aiProvider.spec.ts`（6） |
+| 2 | 一句话生成页面（AI1） | `mockDraft()` → `validateDraft()` 三重校验（形状 → `normalizePage/normalizeDoc` 收敛 + 节点数不变 → 水平越界/兄弟重叠/必填 props 自检），通过后**插入为新页面**并进历史 | `tests/unit/aiDraft.spec.ts`（14） |
+| 3 | 选区指令（AI2） | `applyInstruction()` 产出 `Patch[]`：模型给的 `before` 一律丢弃现取，`update/remove/move` 的目标与 `insert` 的父节点都必须在「选区 + 子树」内，空选区先报错 | `tests/unit/aiInstruction.spec.ts`（16） |
+| 4 | 规则式设计检查（AI3） | `core/assistant` 六条规则：溢出、对比度（WCAG AA，黑/白自动选色）、间距不在刻度表、同类型兄弟尺寸不一致、图片缺 alt、断点整页未覆盖；每条都带可执行补丁 | `tests/unit/assistant.spec.ts`（8） |
+| 5 | 一键修复（AI3） | `fixAll()` 迭代最多 8 轮（一次审计的补丁摊平会互相覆盖），返回补丁序列 → store 作为**一条**「AI 一键修复」历史提交 | `assistant.spec.ts`、`tests/unit/aiStore.spec.ts`（7） |
+| 6 | 操作前快照 + 可撤销（AI0） | 新增页面走**文档级历史条目** `commitDocEntry({ label, at, after })`（`before` 自动取当前 base），与补丁条目共用一条撤销栈；指令/修复是普通补丁历史 | `tests/unit/historyDoc.spec.ts`（5） |
+| 7 | 失败不落库 + 重试一次 | `runWithRetry()` 最多两次（第二次把错误原因追加进 prompt）；返回非 JSON、越界引用、未注册类型、缺必填属性都只报错，`JSON.stringify(doc)` 一字不变 | `aiDraft.spec.ts`、`aiInstruction.spec.ts`、`aiStore.spec.ts` |
+| 8 | 密钥只存本机 + 调用记录 | `src/ai/settings.ts` → `localStorage['studio.ai.settings.v1']`；`aiLogs` 面板记 `kind / provider / ms / 成功与否`，上限 50 条可清空 | `aiProvider.spec.ts`、`aiStore.spec.ts` |
+
+UI 是右侧栏的 `AiPanel.vue`：供应商下拉、接口设置折叠区、「一句话生成页面」、「选区指令」（空选区时按钮禁用）、设计检查列表（每条一个「修复」+ 一键修复）、调用记录。PLAN 验收「Mock provider 单测（合法补丁落库、越界引用拒绝、失败不落库、快照可撤销）」对应上表 2/3/6/7；「组件测试：选区指令后未选中节点 JSON 不变」对应 `tests/component/ai.spec.ts`（6 例，其中一例逐字节比较其余顶层节点）。
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -163,15 +180,25 @@ src/
 │   ├── responsive/          # 断点继承链 / 有效节点求解 / writeOverride() 只存差异 / media query 上界
 │   ├── components/          # 40 个组件的描述符注册表（插件式，registerComponent + subscribeRegistry）
 │   ├── symbols/             # 组件定义 / 实例展开（合成 id）/ 覆盖白名单 / 循环引用检测
+│   ├── assistant/           # audit()：六条规则检查 + 每条的可执行修复补丁 + 迭代式 fixAll()
 │   ├── site/                # buildSite()：静态多页站点（index.html + base.css + 每页 html/css）
 │   ├── zip/                 # createZip()：自写 stored ZIP + CRC-32（不引压缩库）
 │   ├── html/                # escapeHtml / safeUrl（codegen 与组件描述符共用）
 │   └── export/              # drawPage()：PNG 近似截图
 ├── utils/textMeasure.ts     # 离屏 canvas 折行测量（碰 document，所以不在 core）
-├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史 + 布局
+├── ai/                      # AI 编排（碰 fetch / localStorage，所以不在 core）
+│   ├── types.ts             # AiProvider / AiRequest / AiResponse / AiProblem
+│   ├── catalog.ts           # 组件目录 + 页面大纲 + 两份 JSON Schema + buildMessages()
+│   ├── draft.ts             # PageDraft 三重校验（形状 / 收敛 / 自检）
+│   ├── instruction.ts       # 选区指令 → Patch[]：coercePatches / allowedIds / scopeProblems
+│   ├── mock.ts              # 确定性 Mock provider（离线可用）
+│   ├── openai.ts            # OpenAI 兼容端点（key 只进请求头）
+│   ├── settings.ts          # apiKey / baseUrl / model → localStorage
+│   └── index.ts             # createAiService()：重试一次、调用记录、失败不落库
+├── stores/editor.ts         # 唯一的编辑器 store：文档 + 选中 + 视口 + 缩放 + 剪贴板 + 历史 + 布局 + AI
 ├── components/
 │   ├── canvas/              # CanvasStage（指针交互）/ ElementView（单个元素渲染）
-│   └── editor/              # EditorShell / PalettePanel / LayerPanel / PropPanel / LayoutPanel / CodePanel / PageTabs / StatusBar / ContextMenu
+│   └── editor/              # EditorShell / PalettePanel / LayerPanel / PropPanel / LayoutPanel / AiPanel / CodePanel / PageTabs / StatusBar / ContextMenu
 ├── styles/                  # editor.css（编辑器三栏）+ tokens.css + base.css
 └── main.ts
 tests/
@@ -181,20 +208,22 @@ tests/
 └── smoke/                   # 导出冒烟：真实写盘 studio.html / site.zip，用外部工具校验（npm run test:smoke）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D38）
+├── decisions.md             # 架构决策记录（ADR，D1–D44）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M5）
+## 质量数据（M6）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 29 个文件 / **409 个用例全绿**（含 2 个导出结构快照） |
-| 覆盖率 | 语句 97.71% · 分支 91.57% · 函数 98.82% · 行 99.76%（阈值 90） |
-| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **2.84ms**（阈值 8ms；同机多轮在 2.8–4.9ms 之间波动） |
+| 测试 | 36 个文件 / **471 个用例全绿**（含 2 个导出结构快照） |
+| 覆盖率 | 语句 97.12% · 分支 90.66% · 函数 97.45% · 行 99.41%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 由单测与组件测试覆盖但不在 v8 统计里） |
+| 性能 | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **2.94ms**（阈值 8ms；同机多轮在 2.6–4.9ms 之间波动） |
 | 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、`mediaQueries 2`、zip 6905 B，`Expand-Archive` 解压通过 |
-| 构建 | 71 modules；JS 199.38 kB（**gzip 70.03 kB**）；CSS 16.94 kB（gzip 3.51 kB） |
+| 构建 | 81 modules；JS 235.07 kB（**gzip 82.15 kB**）；CSS 18.11 kB（gzip 3.73 kB） |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
+
+AI 之所以让包体涨了约 35 kB（gzip +12 kB），是因为 `src/ai`（目录/校验/两个供应商）与 `core/assistant`、`AiPanel.vue` 都进了编辑器包；它们没有引入任何新依赖。
 
 ## 架构决策
 
@@ -213,18 +242,31 @@ M4 新增 D31–D33：组件库是描述符注册表（插件式 + 订阅通知�
 M5 新增 D34–D38：导出改成语义化 HTML + 独立 CSS 类（画布与 CSS 共用 `declarations()`）、媒体查询不再用
 `!important`（同优先级类 + 复位声明白名单）、自写 stored ZIP 不引压缩库、SEO 是文档级字段且收敛层截断不拒绝、
 React JSX 与保真 PNG 按裁剪优先级推迟。
+M6 新增 D39–D44：AI 只产出结构化 JSON 且落库前过「形状 → 收敛 → 引用/自检」三层（必填 props 必须在收敛前查）、
+AI 新增页面走文档级历史条目（与补丁条目共用撤销栈）、AI 补丁里的 `before` 一律丢弃现取、
+一键修复必须迭代（一次审计的补丁摊平会互相覆盖）、密钥只存本机浏览器且 Mock 保证离线可用、
+选区指令的范围校验基于「选区 + 子树」且空选区优先报错。
 
-## 本机开发环境的三个坑（Windows + 受限沙箱）
+## 本机开发环境的四个坑（Windows + 受限沙箱）
 
 1. **npm 缓存越界**：默认缓存在用户目录，沙箱拒绝写入。仓库根 `.npmrc` 已把缓存重定向到 `.npm-cache`。
 2. **Vite 的 `exec('net use')` 走管道会被沙箱拦成 `EPERM`**：跑 `dev / test / build / preview` 前先设垫片
    `NODE_OPTIONS=--require <仓库>\.sandbox\child-process-pipe-shim.cjs`（`.sandbox/` 已在 `.gitignore` 里，Linux CI 不受影响）。
+   实测不加垫片时 `npm run build` 会在 `vue-tsc -b` **通过之后**倒在 `vite build`：`failed to load config from vite.config.ts … [plugin externalize-deps] Error: spawn EPERM`（栈顶是 `optimizeSafeRealPathSync`）。
 3. **`npm ci` 会删 `node_modules`**：如果 dev/preview 服务还在跑，会报「文件已被占用」并留下半残的依赖树 —— 先停服务再装。
 4. **`child_process.fork` 的管道也被沙箱拒绝**（`Error: spawn EPERM`，`errno -4048`）：`fork` 默认用管道作 stdio，而沙箱不允许开命名管道。所以 Vitest 两个配置都显式写 `pool: 'threads'`（worker_threads 不 spawn 进程）——Vitest 5 的默认 pool 是 forks，去掉这行 `npm run test:smoke` 会直接 `no tests / 1 error`。
 
 ## 已知缺口 / 未做
 
-- **M6–M8 尚未实现**：AI 助手（Mock provider + 规则）、生成组件/素材、协作与发布都在 [PLAN.md](PLAN.md) 里。M5 做完的是「干净的 HTML/CSS/Vue/整站导出」。
+- **M7–M8 尚未实现**：文案/素材生成、AI 生成自定义组件、调用成本面板、性能与可访问性专项、版本历史与分享发布都在 [PLAN.md](PLAN.md) 里。M6 做完的是「离线可用的规则助手 + 只产出补丁的 AI 管线」。
+- **M6 的取舍与已知缺口**：
+  - **没有配真实模型时的「生成」是确定性模板**：`createMockProvider()` 按关键词出草稿/补丁，能证明整条管线（校验、落库、快照、撤销）是通的，但不代表模型质量；真实质量要配 OpenAI 兼容端点（`src/ai/openai.ts`）。
+  - **只有「生成新页面」和「改选区」两条 AI 入口**，没有多轮对话、没有上下文记忆（每次请求都重发页面大纲 + 组件目录），也没有「让 AI 解释为什么这么改」。
+  - 规则检查的六条规则都是**几何/样式层面**的：对比度沿 `parentId` 找最近的非空底色，拿不到真实合成背景（半透明图层会算错）；间距只对齐 `SPACING_SCALE` 这张刻度表；间距/尺寸规则只在特定条件下报（间距只看有子节点的容器，尺寸一致性要 ≥3 个同类型兄弟）。
+  - **`fixAll()` 最多 8 轮**：如果一轮修复又引入新问题（例如撑满宽度后与兄弟重叠），迭代到 8 轮后仍剩问题就停下并如实回报剩余条数；它返回的是补丁序列，调用方必须自己 `commit()`。
+  - 文档级历史条目存**两份完整文档**（`before` / `after`），所以「100 步历史只存补丁」的体积约束对 AI 生成的页面不成立，连续生成很多页面会让内存涨得比普通编辑快。
+  - 密钥明文存在 `localStorage`（`studio.ai.settings.v1`）：同源脚本可读，清了浏览器数据就要重填；面板只做了 `type="password"` 遮蔽，没有加密。
+  - `src/ai` 不在覆盖率统计范围内（`vite.config.ts` 的 `coverage.include` 只看 `src/core/**`），它的质量证据是 43 个 AI 单测 + 6 个面板组件测试。
 - **M5 的取舍与已知缺口**：
   - **React JSX 与「PNG 保真截图」按 PLAN 的裁剪优先级推迟**（D38）：M5 交付 HTML（单文件/整站）、独立 CSS、Vue 3 SFC 三种产物；PNG 仍是 M1 的近似截图，要等 M7 的素材/位图管线。
   - 类名依赖节点 id（`n-<id>`），从外部导入的非法 id 会被 `slugOf()` 转成 `-`，于是 `中文` 这种 id 会变成 `--`，可读性有限；没有做「语义化缩写」或 BEM 层级名（PLAN 的 BEM/原子类选项只做到「类名可读」这一层）。

@@ -883,3 +883,99 @@ button {
   color: var(--studio-text-muted, #64748b);
   font-size: 11px;
 }
+
+/* ---------- AI 面板（M6） ---------- */
+
+.ai-field {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.ai-field__label {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 11px;
+}
+
+.ai-textarea {
+  width: 100%;
+  margin-bottom: 4px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.ai-link {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--studio-primary, #2563eb);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-link:disabled {
+  color: var(--studio-text-muted, #64748b);
+  cursor: not-allowed;
+}
+
+.ai-link--inline {
+  margin: 0 0 0 6px;
+}
+
+.ai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.ai-issues {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.ai-issue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 0;
+  border-top: 1px solid var(--studio-border, #e2e8f0);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.ai-issue__text {
+  min-width: 0;
+}
+
+.ai-issue--error {
+  color: var(--studio-danger, #dc2626);
+}
+
+.ai-issue--warn {
+  color: var(--studio-warning, #b45309);
+}
+
+.ai-issue--info {
+  color: var(--studio-text-muted, #64748b);
+}
+
+.ai-message {
+  margin: 6px 0;
+  color: var(--studio-text, #0f172a);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ai-log {
+  margin: 2px 0;
+  color: var(--studio-text-muted, #64748b);
+  font-size: 11px;
+  word-break: break-all;
+}

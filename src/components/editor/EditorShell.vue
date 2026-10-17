@@ -9,6 +9,7 @@ import { drawPage } from '@/core/export'
 import { createZip } from '@/core/zip'
 import { useEditorStore } from '@/stores/editor'
 import CanvasStage from '@/components/canvas/CanvasStage.vue'
+import AiPanel from './AiPanel.vue'
 import CodePanel from './CodePanel.vue'
 import ContextMenu from './ContextMenu.vue'
 import LayerPanel from './LayerPanel.vue'
@@ -260,6 +261,7 @@ onBeforeUnmount(() => {
       <aside class="editor-side editor-side--right">
         <PropPanel />
         <LayoutPanel />
+        <AiPanel />
         <CodePanel />
       </aside>
     </div>

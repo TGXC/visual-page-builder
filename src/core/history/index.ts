@@ -13,12 +13,33 @@ import { applyPatches, invertPatches } from '../patch'
 
 export const MERGE_WINDOW = 400
 
-export interface HistoryEntry {
+/** 补丁条目：绝大多数编辑（含 AI 产出的补丁组）都是这种 */
+export interface PatchHistoryEntry {
+  /** 缺省即补丁条目（老代码构造的字面量不用改） */
+  kind?: 'patch'
   label: string
   patches: Patch[]
   /** 只有同 mergeKey 的连续 update 才可能合并 */
   mergeKey?: string
   at: number
+}
+
+/**
+ * 文档级条目（M6）：AI 的「整份文档」操作（生成新页面、整份替换）没法表示成节点补丁，
+ * 所以这里存 before / after 两份文档 —— 功能文档 AI0 第 2 条要求「AI 操作前先存快照」。
+ */
+export interface DocHistoryEntry {
+  kind: 'doc'
+  label: string
+  at: number
+  before: Doc
+  after: Doc
+}
+
+export type HistoryEntry = PatchHistoryEntry | DocHistoryEntry
+
+export function isDocEntry(entry: HistoryEntry): entry is DocHistoryEntry {
+  return entry.kind === 'doc'
 }
 
 export interface HistoryState {
@@ -54,11 +75,17 @@ function mergePatches(last: readonly Patch[], next: readonly Patch[]): Patch[] |
 
 /** 提交一条历史：能合并就合并（不新增历史条目），否则入栈并清空重做栈 */
 export function commitEntry(state: HistoryState, entry: HistoryEntry): HistoryState {
+  if (isDocEntry(entry)) {
+    // 文档级条目自带 before / after，不参与合并窗口
+    return { base: entry.after, undo: [...state.undo, entry], redo: [] }
+  }
+
   const last = state.undo[state.undo.length - 1]
   const base = applyPatches(state.base, entry.patches)
 
   if (
     last &&
+    !isDocEntry(last) &&
     last.mergeKey &&
     entry.mergeKey &&
     last.mergeKey === entry.mergeKey &&
@@ -77,9 +104,20 @@ export function commitEntry(state: HistoryState, entry: HistoryEntry): HistorySt
   return { base, undo: [...state.undo, entry], redo: [] }
 }
 
+/** AI 快照：把「整份文档替换」记成一条可撤销命令（before 由当前 base 自动取） */
+export function commitDocEntry(
+  state: HistoryState,
+  entry: { label: string; at: number; after: Doc },
+): HistoryState {
+  return commitEntry(state, { kind: 'doc', label: entry.label, at: entry.at, before: state.base, after: entry.after })
+}
+
 export function undoEntry(state: HistoryState): HistoryState {
   const entry = state.undo[state.undo.length - 1]
   if (!entry) return state
+  if (isDocEntry(entry)) {
+    return { base: entry.before, undo: state.undo.slice(0, -1), redo: [entry, ...state.redo] }
+  }
   return {
     base: applyPatches(state.base, invertPatches(entry.patches)),
     undo: state.undo.slice(0, -1),
@@ -90,6 +128,9 @@ export function undoEntry(state: HistoryState): HistoryState {
 export function redoEntry(state: HistoryState): HistoryState {
   const entry = state.redo[0]
   if (!entry) return state
+  if (isDocEntry(entry)) {
+    return { base: entry.after, undo: [...state.undo, entry], redo: state.redo.slice(1) }
+  }
   return {
     base: applyPatches(state.base, entry.patches),
     undo: [...state.undo, entry],

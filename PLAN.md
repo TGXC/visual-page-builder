@@ -145,6 +145,8 @@ npm run build
 
 **验收**：Mock provider 单测（合法补丁落库、越界引用拒绝、失败不落库、快照可撤销）+ 组件测试（选区指令后未选中节点 JSON 不变）。判据：不配 key 也能用规则检查与修复；生成失败不污染文档。
 
+**实现偏离（已完成）**：`AiProvider` 定为 `{ id, label, ready, complete(request) }`，Mock 是默认供应商且 `ready: true`（离线可用），OpenAI 兼容端点走 `/chat/completions` + `response_format: json_object`，key 只进请求头、设置存 `localStorage['studio.ai.settings.v1']`（D43）。AI 产出的落库路径是「形状 → `normalizePage`/`normalizeDoc` 收敛（节点数必须不变）→ 自检（水平越界/兄弟重叠/必填 props）」，**必填 props 必须在收敛前查**（`normalizeNode()` 会用 `defaultPropsFor()` 补齐，收敛后永远查不出缺失，D39）；补丁侧 `coercePatches()` 丢弃模型给的 `before` 并从当前文档现取，`scopeProblems()` 把 `update/remove/move` 的目标与 `insert` 的父节点限制在「选区 + 子树」内，空选区优先报 `scope`（D41/D44）。**计划外的改动**：`HistoryEntry` 拆成补丁条目与**文档级条目**（`commitDocEntry()`），否则 AI 新增页面会被 `setDoc()` 的 `createHistory()` 清空历史、无法撤销（D40）；`fixAll()` 改成最多 8 轮迭代，因为一次审计里同规则多条的补丁基于同一份 before，摊平会互相覆盖（D42）。规则检查六条全部落地（溢出/对比度/间距/尺寸一致/alt/断点未覆盖），每条都带可执行补丁。**未做**：多轮对话与上下文记忆、AI 生成自定义组件（M7）、成本面板（M7）、真实模型效果演示（需要用户提供 key，见 M7 注）。
+
 ### M7 AI 进阶
 
 **任务**：文案/素材生成（候选 → 应用 → 可撤销）、AI 生成自定义组件（受限 DSL + 预览 + 注册到「我的组件」）、调用记录与成本面板、离线降级提示。

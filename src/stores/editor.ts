@@ -27,6 +27,7 @@ import { applyPatches, cloneNode, invertPatches } from '@/core/patch'
 import {
   canRedo,
   canUndo,
+  commitDocEntry,
   commitEntry,
   createHistory,
   historyLabels,
@@ -36,6 +37,12 @@ import {
   undoEntry,
   type HistoryState,
 } from '@/core/history'
+import { auditDoc, fixAll, type Issue } from '@/core/assistant'
+import { createAiService, type AiCallLogEntry } from '@/ai'
+import { createMockProvider } from '@/ai/mock'
+import { createOpenAIProvider } from '@/ai/openai'
+import { loadAiSettings, saveAiSettings, type AiSettings } from '@/ai/settings'
+import type { AiProblem, AiProvider } from '@/ai/types'
 import {
   alignPatches,
   createNode,
@@ -761,6 +768,156 @@ export const useEditorStore = defineStore('editor', () => {
     return applyPatches(history.value.base, patches)
   }
 
+  // ── AI（M6）──────────────────────────────────────────────────────────
+  // 铁律（功能文档 AI0）：AI 只产出结构化 JSON，经本地校验后走 commit 入历史，
+  // 失败一律不落库；离线时 Mock 供应商照样能生成页面与跑规则检查。
+  const aiSettings = ref<AiSettings>(loadAiSettings())
+  const aiProviderId = ref<'mock' | 'openai'>('mock')
+  const aiBusy = ref(false)
+  const aiMessage = ref('')
+  const aiLogs = ref<AiCallLogEntry[]>([])
+  const aiService = createAiService()
+
+  /** 检查结果跟着文档实时重算，不缓存脏状态 */
+  const aiIssues = computed<Issue[]>(() => auditDoc(doc.value, activePage.value.id))
+  const aiProviders = computed(() => [
+    { id: 'mock', label: '内置规则助手（离线）', ready: true },
+    {
+      id: 'openai',
+      label: `OpenAI 兼容（${aiSettings.value.model}）`,
+      ready: aiSettings.value.apiKey.trim() !== '',
+    },
+  ])
+
+  function aiSyncLogs(): void {
+    aiLogs.value = aiService.logs()
+  }
+
+  function buildAiProvider(id: string): AiProvider {
+    if (id === 'openai') {
+      return createOpenAIProvider({
+        apiKey: aiSettings.value.apiKey,
+        baseUrl: aiSettings.value.baseUrl,
+        model: aiSettings.value.model,
+      })
+    }
+    return createMockProvider()
+  }
+
+  function aiSetProvider(id: string): void {
+    if (id !== 'mock' && id !== 'openai') return
+    aiProviderId.value = id
+    aiService.setProvider(buildAiProvider(id))
+  }
+
+  /** 设置只写本机 localStorage（AI6：密钥不进文档） */
+  function aiSaveSettings(next: Partial<AiSettings>): void {
+    aiSettings.value = saveAiSettings({ ...aiSettings.value, ...next })
+    if (aiProviderId.value === 'openai') aiSetProvider('openai')
+  }
+
+  function aiClearLogs(): void {
+    aiService.clearLogs()
+    aiSyncLogs()
+  }
+
+  function problemText(errors: AiProblem[]): string {
+    return errors.map((item) => item.message).join('；')
+  }
+
+  /** AI1 一句话生成页面：整页插入是一条文档级历史（可一次撤销） */
+  async function aiGeneratePage(prompt: string): Promise<boolean> {
+    const text = prompt.trim()
+    if (text === '') {
+      pushToast('先写一句想要什么页面', 'error')
+      return false
+    }
+    aiBusy.value = true
+    try {
+      const outcome = await aiService.generatePage(doc.value, text, activePage.value.id)
+      if (!outcome.ok || !outcome.value) {
+        aiMessage.value = problemText(outcome.errors)
+        pushToast(`AI 生成失败：${aiMessage.value}`, 'error')
+        return false
+      }
+      const { page, doc: nextDoc, warnings } = outcome.value
+      history.value = commitDocEntry(history.value, {
+        label: `AI 生成页面：${page.name}`,
+        at: Date.now(),
+        after: nextDoc,
+      })
+      selectedIds.value = [page.root]
+      aiMessage.value = `已生成「${page.name}」（${Object.keys(page.nodes).length} 个节点）${warnings.length > 0 ? `｜${warnings.join('；')}` : ''}`
+      pushToast('AI 已生成新页面（可撤销）')
+      return true
+    } finally {
+      aiBusy.value = false
+      aiSyncLogs()
+    }
+  }
+
+  /** AI2 选区指令：只影响选中子树，补丁落地后未选中节点逐字节不变 */
+  async function aiEditSelection(prompt: string): Promise<boolean> {
+    const text = prompt.trim()
+    if (text === '') return false
+    if (selectedIds.value.length === 0) {
+      pushToast('先选中要改的元素', 'error')
+      return false
+    }
+    aiBusy.value = true
+    try {
+      const outcome = await aiService.editSelection(
+        doc.value,
+        activePage.value.id,
+        [...selectedIds.value],
+        text,
+      )
+      if (!outcome.ok || !outcome.value) {
+        aiMessage.value = problemText(outcome.errors)
+        pushToast(`AI 编辑失败：${aiMessage.value}`, 'error')
+        return false
+      }
+      if (outcome.value.patches.length === 0) {
+        aiMessage.value = 'AI 没有给出任何改动'
+        return false
+      }
+      commit(`AI 编辑：${text.slice(0, 24)}`, outcome.value.patches)
+      aiMessage.value = `已应用 ${outcome.value.patches.length} 个补丁`
+      return true
+    } finally {
+      aiBusy.value = false
+      aiSyncLogs()
+    }
+  }
+
+  /** AI3 单条修复：走普通补丁历史 */
+  function aiFixIssue(issueId: string): boolean {
+    const issue = aiIssues.value.find((item) => item.id === issueId)
+    if (!issue) return false
+    if (issue.patches.length === 0) {
+      pushToast('这条问题没有自动修复方案', 'error')
+      return false
+    }
+    commit(`AI 修复：${issue.fixLabel}`, issue.patches)
+    aiMessage.value = `已修复：${issue.fixLabel}`
+    return true
+  }
+
+  /** AI3 一键修复：补丁序列由 core/assistant 迭代算出，落地仍是一条普通补丁历史 */
+  function aiFixAll(): number {
+    const before = aiIssues.value.length
+    const patches = fixAll(doc.value, activePage.value.id)
+    if (patches.length === 0) {
+      aiMessage.value = '没有可自动修复的问题'
+      return 0
+    }
+    commit('AI 一键修复', patches)
+    const left = aiIssues.value.length
+    aiMessage.value = `修复前 ${before} 条，剩余 ${left} 条`
+    pushToast('AI 已一键修复（可撤销）')
+    return before - left
+  }
+
   // ── 自动保存 ──────────────────────────────────────────────────────────
   let saveTimer: number | undefined
   watch(
@@ -865,6 +1022,20 @@ export const useEditorStore = defineStore('editor', () => {
     previewPatches,
     pushToast,
     commit,
+    aiBusy,
+    aiMessage,
+    aiLogs,
+    aiIssues,
+    aiProviders,
+    aiProviderId,
+    aiSettings,
+    aiGeneratePage,
+    aiEditSelection,
+    aiFixIssue,
+    aiFixAll,
+    aiSetProvider,
+    aiSaveSettings,
+    aiClearLogs,
   }
 })
 

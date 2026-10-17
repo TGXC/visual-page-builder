@@ -20,7 +20,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     pool: 'threads',
-    poolOptions: { threads: { singleThread: true } },
+    // Vitest 4 起 poolOptions 被移除，单线程改成顶层 maxWorkers
+    maxWorkers: 1,
     include: ['tests/perf/**/*.spec.ts'],
     testTimeout: 30_000,
   },

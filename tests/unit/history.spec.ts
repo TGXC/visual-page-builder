@@ -12,7 +12,7 @@ import {
   redoEntry,
   undoEntry,
 } from '@/core/history'
-import type { HistoryEntry, HistoryState } from '@/core/history'
+import type { HistoryState, PatchHistoryEntry } from '@/core/history'
 import { childrenOf } from '@/core/tree'
 import { docWithNodes, makeNode, snapshot } from './factories'
 
@@ -26,7 +26,7 @@ function tree(): Doc {
   ])
 }
 
-function insertEntry(state: HistoryState, id: string, at = 0): HistoryEntry {
+function insertEntry(state: HistoryState, id: string, at = 0): PatchHistoryEntry {
   const siblings = childrenOf(state.base.pages[0].nodes, 'root')
   return {
     label: '新增矩形',
@@ -35,7 +35,7 @@ function insertEntry(state: HistoryState, id: string, at = 0): HistoryEntry {
   }
 }
 
-function renameEntry(state: HistoryState, id: string, name: string, at = 0): HistoryEntry {
+function renameEntry(state: HistoryState, id: string, name: string, at = 0): PatchHistoryEntry {
   const node = state.base.pages[0].nodes[id]
   return {
     label: '改名',

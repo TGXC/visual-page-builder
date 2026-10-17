@@ -324,4 +324,52 @@
 
 **代价**：M5 的产物清单比 PLAN 原文少两项；`docs/decisions.md` 与 README 必须写清楚，避免被当成漏做。
 
+## D39：AI 只能产出结构化 JSON，落库必须过「形状 → 收敛 → 引用/自检」三层
+
+**决定**：`AiProvider.complete()` 返回的是 JSON（`PageDraft` 或 `Patch[]`），落库前一律走本地校验：`shapeProblems()`（对象形状、`root` 在 `nodes` 里、类型在注册表中、`parentId` 存在、根外必须有父、**原始草稿**里必需 props 不能缺）→ `validateDraft()`（`normalizePage()` 收敛后再比节点数，`normalizeDoc()` 收敛，返回非空且含该页）→ `selfCheckProblems()`（`computeLayout()` 后水平越界、同父兄弟重叠 > 小盒 60%）。任何一层失败都返回 `{ ok: false, errors }`，**文档一字不动**。补丁侧对应 `coercePatches()`（丢弃模型给的 `before`、`layout`/`style` 只给差异时补成完整对象）+ `scopeProblems()`（目标必须在「选区 + 子树」内、`pageId` 必须一致）。供应商输出不合法时 `runWithRetry()` 只重试一次，第二次把错误原因追加进 prompt。
+
+**理由**：功能文档 AI0 的第一条铁律是「AI 只产出结构化 JSON，经 `normalizeDoc` + 引用完整性 + 组件白名单才落库」。把校验放在 core 的纯函数里，Mock 与真实供应商走同一条路 —— 测试可以完整覆盖「非法输出不污染文档」。必填 props 必须在**收敛前**查，因为 `normalizeNode()` 会用 `defaultPropsFor(type)` 补齐，收敛后永远查不出缺失（写测试时踩过：`button` 少了 `text` 仍然通过）。
+
+**代价**：同一份数据要过两遍（raw 一次、收敛后一次）；`selfCheck` 只查水平越界（落地页本来就该比视口长），垂直超长不报；AI 生成的内容仍可能语义离谱，校验只能保证「结构合法」。
+
+## D40：AI 新增页面走「文档级历史条目」，与补丁条目共用一条撤销栈
+
+**决定**：`HistoryEntry` 拆成 `PatchHistoryEntry`（`kind?: 'patch'`，老字面量不用改）与 `DocHistoryEntry`（`kind: 'doc'`，存 `before` / `after` 两份完整文档）；`commitDocEntry(state, { label, at, after })` 自动把 `state.base` 当 `before`。`undoEntry()` 对文档级条目回到 `entry.before`，`redoEntry()` 回到 `entry.after`。文档级条目不参与 `MERGE_WINDOW` 合并（一条就是一条）。store 的 `aiGeneratePage()` 用它写入「AI 生成页面：<页面名>」，所以 undo 一步就回到原来的页面与选中项。
+
+**理由**：`store.setDoc(next, label, keepHistory = false)` 默认会 `createHistory(next)` **清空历史**，AI 生成新页面又是一次页面级变更。若照抄 D33「直接改 base 不入栈」，AI 生成就不可撤销，违反 AI0 第二条（每次 AI 操作前存快照、历史里一条可撤销命令）。
+
+**代价**：文档级条目存两份完整 `Doc`（内存占用远大于补丁条目，一次 AI 生成约等于一份文档副本），所以「100 步历史只存补丁」那条体积断言对文档级条目不成立；`kind` 设为可选是为了不破坏既有测试里的补丁字面量。
+
+## D41：AI 补丁里的 `before` 一律丢弃，从当前文档现取
+
+**决定**：`coercePatch()` 忽略模型给出的 `before`，用 `pick()` 从页面当前节点里现取；`style` / `layout` 只给差异时，合并到当前值上得到完整对象（`applyPatch` 的 `applyNodeData` 是整体替换）。AI 更新节点时也只允许 `type / layout / style / props / overrides / meta` 这几个字段。
+
+**理由**：`before` 由模型提供等于让它同时决定「改了什么」和「改回去是什么」——一个错的 `before` 会让 undo 把文档改坏，而撤销恰恰是 AI 功能的安全网。整体替换的语义（D27 同源）要求补丁自带完整子对象，所以合并必须在服务端做。
+
+**代价**：模型无法表达「把字段删掉」这种语义（只会写值）；补丁体积比模型输出的差异大（`style` 会写全 15 个键）。
+
+## D42：一键修复用迭代式 `fixAll()`，不能把一次审计的补丁摊平
+
+**决定**：`fixAll(doc, pageKey?)` 循环最多 8 轮：每轮 `auditDoc()` 取 `patches.length > 0` 的问题摊平补丁 → `applyPatches()`，`JSON.stringify` 不变就提前退出，最后返回累计的 `Patch[]`（由 store 作为**一条**普通补丁历史提交）。
+
+**理由**：一次审计里同规则可能报多条（例如 tablet 与 mobile 两条「断点未覆盖」），它们的补丁都基于同一份文档的**同一份 before** 整份替换 `overrides`，摊平后后者会把前者的修改覆盖掉 —— 表现为「一键修复后断点问题仍然存在」（第一版就是这样，测试里 `breakpoint-uncovered` 残留）。迭代式让后一条基于前一条的结果重新审计，天然消解冲突。
+
+**代价**：最坏 8 轮 × 全页审计，大文档上比单趟慢；返回的是补丁而不是修好的文档，调用方必须自己 `commit()`（我第一版把它当 `Doc` 用，运行时 `TypeError: Cannot read properties of undefined (reading 'find')`）。
+
+## D43：密钥只存本机浏览器，Mock 供应商保证不配 key 也能用
+
+**决定**：`src/ai/settings.ts` 把 `{ apiKey, baseUrl, model }` 存在 `localStorage['studio.ai.settings.v1']`，`loadAiSettings()` 对坏 JSON/无 localStorage 一律回落默认值；`createOpenAIProvider()` 的 key 只进请求头，`JSON.stringify(doc)` 与导出物里永远没有 key。默认供应商是 `createMockProvider()`（`ready: true`），`ready: false` 的供应商根本不会被调用（`notReady()` 直接返回 provider 错误）。
+
+**理由**：AI6 要求「密钥只存本地」；Mock 必备是 AI0 第三条（离线可用）。把 `ready` 判断放在编排层而不是组件里，保证「点生成但没配 key」也走同一条失败路径（报错、日志留痕、文档不动）。
+
+**代价**：key 明文存在 `localStorage`（同源脚本可读，XSS 风险由前端整体承担）；换浏览器/清缓存就要重填；Mock 的「生成」是确定性模板，用户容易把它当成模型的真实能力。
+
+## D44：选区指令的范围校验基于「选区 + 子树」，空选区优先报错
+
+**决定**：`allowedIds(doc, pageId, selectionIds)` = 选中节点 + `subtreeIds()`；`applyInstruction()` 的顺序是「先判空选区（报 `scope`，文案『请先选中要修改的元素』）→ 形状 → 范围 → `applyPatches`」。`update`/`remove`/`move` 的目标与 `insert` 的父节点都必须在 `allowedIds` 里，`remove` 不许删根，`insert` 的父节点必须是容器类型。
+
+**理由**：AI2 的验收判据是「只影响选中子树」，所以范围校验必须是**结构性**的，而不是靠提示词里说「只改选中的」。空选区排在形状之前，是因为「没选东西」比「模型输出不合法」更早、更可能是用户操作问题。
+
+**代价**：`allowedIds` 每轮重新计算（O(子树)）；用户想「把选中的卡片移到另一个容器」时，目标父节点若不在选区内就会被拒（当前实现只允许在选区内移动）。
+
 
