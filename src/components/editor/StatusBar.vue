@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 状态栏：实时坐标 / 选中尺寸 / 元素与页面计数 / 缩放 */
 import { computed } from 'vue'
+import { BUILD_TAG } from '@/config/build'
 import { rectOf } from '@/core/geometry'
 import { useEditorStore } from '@/stores/editor'
 
@@ -29,5 +30,10 @@ const count = computed(() => Object.keys(store.nodes).length - 1)
     <span class="status-bar__spacer" />
     <span class="status-bar__item">{{ count }} 个元素 · {{ store.pages.length }} 页</span>
     <span class="status-bar__item" data-role="zoom">{{ Math.round(store.zoom * 100) }}%</span>
+    <span
+      class="status-bar__item status-bar__item--muted"
+      data-role="build-tag"
+      :title="`当前界面版本 ${BUILD_TAG}；与仓库最新提交对不上说明浏览器还在用缓存，按 Ctrl+F5 强刷`"
+    >{{ BUILD_TAG }}</span>
   </footer>
 </template>

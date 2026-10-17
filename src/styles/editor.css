@@ -641,6 +641,17 @@ textarea.editor-input {
   overflow: auto;
   background: var(--studio-surface-3, #eef2f7);
   box-shadow: inset 0 2px 6px rgb(15 23 42 / 5%);
+  /*
+   * 画布里禁用文字选区：一旦文字被选中，浏览器会开始一次原生 drag（跟着鼠标的半透明快照），
+   * 同时给画布发 pointercancel，我们的 pointer 拖拽就被掐断 → 表现成「拖动时组件不跟手/像复制了一份」。
+   * 双击改文字用的 `.canvas-text-editor` 输入框单独放开选区。
+   */
+  user-select: none;
+}
+
+.canvas-text-editor,
+.canvas-text-editor input {
+  user-select: text;
 }
 
 .canvas-page {

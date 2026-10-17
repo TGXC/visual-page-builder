@@ -118,6 +118,38 @@ describe('M1 编辑器：画布交互与面板', () => {
     expect(wrapper.find(`.canvas-el[data-node-id="${node?.id}"]`).exists()).toBe(true)
   })
 
+  it('拖入只接受组件类型：画布里拖图片/链接等原生 drag 带进来的 URL 不会被插成组件', async () => {
+    const stage = wrapper.find('.canvas-stage').element
+    const before = Object.keys(store.nodes).length
+    dropOn(stage, 'https://example.com/a.png', 300, 200)
+    dropOn(stage, '从左侧拖入组件', 300, 200)
+    await flush()
+    expect(Object.keys(store.nodes).length).toBe(before)
+  })
+
+  it('同一次拖拽连发两个 drop 只插入一个组件', async () => {
+    const stage = wrapper.find('.canvas-stage').element
+    const before = Object.keys(store.nodes).length
+    dropOn(stage, 'text', 300, 200)
+    dropOn(stage, 'text', 300, 200)
+    await flush()
+    expect(Object.keys(store.nodes).length).toBe(before + 1)
+  })
+
+  it('拖动元素只移动、不复制（元素数量不变）', async () => {
+    const id = store.insertComponent('text', { position: { x: 100, y: 100 } })
+    await flush()
+    const before = Object.keys(store.nodes).length
+    drag(nodeEl(wrapper, id), [140, 140], [340, 240])
+    await flush()
+    expect(Object.keys(store.nodes).length).toBe(before)
+    expect(store.nodes[id].layout.position).toEqual({ x: 300, y: 200 })
+  })
+
+  it('状态栏显示当前界面版本号（对不上就是浏览器缓存了旧文件）', async () => {
+    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M18')
+  })
+
   it('拖动元素改位置，Ctrl+Z 撤销回原位', async () => {
     const id = store.insertComponent('text', { position: { x: 100, y: 100 } })
     await flush()

@@ -56,12 +56,21 @@ function toggle(key: string): void {
   openGroups.value = { ...openGroups.value, [key]: !isOpen(key) }
 }
 
+/**
+ * 上一次 dragstart 的时间。有些浏览器（以及拖拽被中断的手势）会在 drag 结束后再补一个 click，
+ * 结果是「拖进画布一个组件，面板又点了一次 → 多出一个」——用户看到的就是「拖动时复制了一份」。
+ * dragstart 之后 400ms 内的 click 一律当作拖拽的尾巴忽略掉。
+ */
+let dragStartedAt = 0
+
 function onDragStart(event: DragEvent, type: string): void {
+  dragStartedAt = Date.now()
   event.dataTransfer?.setData('text/plain', type)
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
 }
 
 function add(type: ComponentType): void {
+  if (Date.now() - dragStartedAt < 400) return
   store.insertComponent(type)
 }
 </script>

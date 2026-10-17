@@ -8,8 +8,8 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Box, NodeId, SceneNode } from '@/core/schema/types'
 import type { Handle, SnapGuide } from '@/core/geometry'
-import { applySnap, rectOf, rectsIntersect, resizeBox } from '@/core/geometry'
-import { componentLabel } from '@/core/components'
+import { SNAP_THRESHOLD, applySnap, rectOf, rectsIntersect, resizeBox } from '@/core/geometry'
+import { componentLabel, getComponent } from '@/core/components'
 import { dropParentAt } from '@/core/dnd'
 import { instanceIdOf } from '@/core/symbols'
 import type { SpacingHint } from '@/core/spacing'
@@ -57,6 +57,8 @@ interface Interaction {
 }
 
 let interaction: Interaction | null = null
+/** 上一次「从面板拖入」的落点：防同一手势的重复 drop 插两个组件 */
+let lastDrop: { type: string; at: number; x: number; y: number } | null = null
 
 const root = computed<SceneNode>(() => view.value[store.rootId])
 /** 画布一律渲染「当前断点的有效节点」：断点上的覆盖（隐藏/样式/几何）必须看得见 */
@@ -146,6 +148,14 @@ function dragPoint(active: Interaction, clientX: number, clientY: number): { x: 
     x: active.startLocalX + (clientX - active.startClientX) / scale,
     y: active.startLocalY + (clientY - active.startClientY) / scale,
   }
+}
+
+/**
+ * 磁吸阈值按缩放换算：默认 6 设计像素在 200% 缩放下是 12 屏幕像素，
+ * 拖起来会「离得还远就吸住、相对鼠标偏移一下」，改成固定 6 **屏幕**像素。
+ */
+function snapThreshold(active: Interaction): number {
+  return SNAP_THRESHOLD / (active.scale || 1)
 }
 
 /** 磁吸参考线：同级节点的六条边 + 画布四条边 */
@@ -260,6 +270,18 @@ function onStagePointerDown(event: PointerEvent): void {
   const canClosest = typeof target?.closest === 'function'
   const handleEl = canClosest ? target.closest('[data-handle]') : null
   const nodeEl = canClosest ? (target.closest('[data-node-id]') as HTMLElement | null) : null
+
+  /*
+   * 阻止浏览器的默认「原生拖拽 / 文字选区」：画布里一旦有文字被选中或被拖成原生 drag，
+   * 浏览器会开始 native drag（显示一个跟随鼠标的半透明快照），同时给画布发 pointercancel，
+   * 我们的 pointer 拖拽就被掐断——表现为「拖到一半组件不跟手了」「好像多出来一个组件」。
+   * 双击改文字用的是独立的 `.canvas-text-editor` 输入框，那里的 pointerdown 不能拦。
+   */
+  const typing = canClosest ? target.closest('.canvas-text-editor') !== null : false
+  if (!typing) {
+    event.preventDefault()
+    window.getSelection()?.removeAllRanges()
+  }
 
   if (editingId.value) commitTextEdit()
 
@@ -402,7 +424,7 @@ function onStagePointerMove(event: PointerEvent): void {
       { minW: EDGE, minH: EDGE, keepRatio: event.shiftKey && interaction.handle.length === 2 },
     )
     const target = interaction.ids[0]
-    const snapped = applySnap(box, snapTargets(interaction.ids))
+    const snapped = applySnap(box, snapTargets(interaction.ids), snapThreshold(interaction))
     guides.value = snapped.guides
     store.setBox(target, snapped.box, '缩放元素', 'resize')
     return
@@ -414,7 +436,7 @@ function onStagePointerMove(event: PointerEvent): void {
     x: interaction.startBox.x + (grabbed.x - interaction.startLocalX),
     y: interaction.startBox.y + (grabbed.y - interaction.startLocalY),
   }
-  const snapped = applySnap(candidate, snapTargets(interaction.ids))
+  const snapped = applySnap(candidate, snapTargets(interaction.ids), snapThreshold(interaction))
   guides.value = snapped.guides
   // 落点容器和当前父级不同才算「换父级」：拖到自己容器里仍然是普通移动
   const container = containerAt(grabbed, interaction.ids)
@@ -471,11 +493,23 @@ function onStagePointerUp(event: PointerEvent): void {
   void event
 }
 
+/**
+ * 从组件面板拖进来的落点。
+ * 只接受「组件面板给的合法类型」：画布里拖图片/链接/选中文字时，浏览器也会发一次原生 drop，
+ * `dataTransfer` 里是 URL 或文字，以前会被当成 `text` 插进来——用户看到的就是「拖动时多出一个组件」。
+ */
 function onDrop(event: DragEvent): void {
-  const type = event.dataTransfer?.getData('text/plain') || 'text'
+  const raw = event.dataTransfer?.getData('text/plain') ?? ''
+  if (!raw || !getComponent(raw)) return
   const point = localPoint(event.clientX, event.clientY)
   const parentId = containerAt(point) ?? store.rootId
-  store.insertComponent(type as SceneNode['type'], { parentId, position: { x: point.x, y: point.y } })
+  // 同一次拖拽偶尔会连发两个 drop（浏览器 + 我们自己的保险）：500ms 内同类型同落点只插一个
+  const now = Date.now()
+  if (lastDrop && lastDrop.type === raw && now - lastDrop.at < 500 && Math.hypot(lastDrop.x - point.x, lastDrop.y - point.y) < 8) {
+    return
+  }
+  lastDrop = { type: raw, at: now, x: point.x, y: point.y }
+  store.insertComponent(raw as SceneNode['type'], { parentId, position: { x: point.x, y: point.y } })
 }
 
 function onStageContextMenu(event: MouseEvent): void {
@@ -525,6 +559,7 @@ onBeforeUnmount(() => {
     class="canvas-stage"
     @pointerdown="onStagePointerDown"
     @pointermove="onStagePointerMove"
+    @dragstart.prevent
     @dragover.prevent
     @drop.prevent="onDrop"
     @contextmenu.prevent="onStageContextMenu"

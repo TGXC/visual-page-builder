@@ -254,6 +254,16 @@ npm run build
 
 **验收**：`npm test` 52 文件 / 594 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 284.51 kB / gzip 98.23，CSS 29.73 kB / gzip 5.74）、`test:perf` 布局 6.47ms / 导出 132.17ms（CSS 40.30 / HTML 41.55 / 整站 43.02 / ZIP 6.51ms）、`test:smoke` 通过。**未做**：拖拽期间坐标系被冻结（拖到一半滚动画布不会跟着滚动后的坐标系走，这是有意的）；`localPoint()` 与 `dragPoint()` 两套坐标语义并存；文本居中只是 CSS 修正、jsdom 锁不住，仍靠浏览器目测，多行文本在画布上是垂直居中而导出侧仍是顶部对齐；画布与导出的盒模型仍是两套。
 
+### M18 手势与拖入修订（计划外，用户第十轮反馈）
+
+**触发**：用户第十轮反馈「问题依旧存在，且在拖动时有概率会将该组件复制一份」。前两轮的修法（缩放原点、拖拽坐标快照）都只覆盖了一类原因，「复制一份」说明还有第二条路径。
+
+**根因**：画布里的文字一旦被选中（或指针落在图片/链接这类浏览器默认可拖内容上），浏览器会自己发起一次**原生 drag**：一边显示跟随鼠标的半透明快照（用户看到的就是「复制了一份」），一边给画布发 `pointercancel` 把我们的 pointer 拖拽掐断（元素停在半路、鼠标继续走 → 「组件与鼠标相对位置改变」）。而 `onDrop` 以前是 `getData('text/plain') || 'text'`，那次原生 drop 的文本/URL 就被当成组件类型插了进来。两条症状同一个根因，且都「有概率」。
+
+**做了什么**：`CanvasStage.vue`：`onStagePointerDown` 对非 `.canvas-text-editor` 目标 `preventDefault()` + 清空选区；模板根加 `@dragstart.prevent`；`onDrop` 只接受 `getComponent()` 认识类型、并对「同类型 + 落点 <8px + 间隔 <500ms」的重复 drop 去重；磁吸阈值改成 `SNAP_THRESHOLD / zoom`（固定 6 屏幕像素）。`PalettePanel.vue`：`onDragStart` 记时间戳，400ms 内的 `click` 忽略（挡掉拖拽后补发的 click → 面板加两次）。`editor.css`：`.canvas-stage { user-select: none }`，`.canvas-text-editor` 放开。新增 `src/config/build.ts`（`BUILD_TAG = 'M18'`）+ `StatusBar.vue` 版本角标 `[data-role="build-tag"]`，用来区分「没修好」和「浏览器缓存」（D77–D80）。
+
+**验收**：`npm test` 52 文件 / 598 用例、覆盖率 97.20 / 90.61 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（JS 285.13 kB / gzip 98.53，CSS 29.86 kB / gzip 5.77）、`test:perf` 布局 5.44ms / 导出 149.31ms（CSS 44.15 / HTML 44.53 / 整站 48.98 / ZIP 7.52ms，本轮机器负载偏高）、`test:smoke` 通过。新增 4 例组件测试：拖入非组件类型不插入、同手势两个 drop 只插一个、拖动只移动不复制、状态栏显示 M18。**未做**：画布里文字不能再鼠标选中复制；拖入失败是静默的；同位置连续拖入同类型有 500ms/8px 去重窗；版本角标要手动维护；沙箱内无法启动真实浏览器，D77 的结论来自可验证的浏览器行为 + 代码路径，仍未真机复现。
+
 
 ## 4. 数据模型约定（v2 关键约束）
 
