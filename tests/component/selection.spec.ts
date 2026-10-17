@@ -232,4 +232,27 @@ describe('选择与删除', () => {
     await flush()
     expect(store.canRemoveSelection).toBe(true)
   })
+
+  it('模板页的页面底色画在画布容器上，根 frame 不再盖住网格层', async () => {
+    // 用户 m10165：模板页上「画布的方格没了」——根 frame 铺满整页且底色不透明，
+    // 把网格层整个盖住了。现在底色挪到 .canvas-page，网格层才看得见。
+    await mountShell()
+    store.addPageFromTemplate('profile')
+    await flush()
+    const page = wrapper.find('.canvas-page')
+    expect(page.attributes('style') ?? '').toContain('background')
+    const rootEl = wrapper.find(`[data-node-id="${store.rootId}"]`)
+    expect(rootEl.attributes('style') ?? '').not.toContain('background')
+    const grid = wrapper.find('[data-role="canvas-grid"]')
+    expect(grid.exists()).toBe(true)
+    // 网格层是容器的第一个子元素（在元素层之前、页面底色之上）
+    expect(page.element.firstElementChild).toBe(grid.element)
+  })
+
+  it('空白项目的根 frame 也没有自己的底色（网格靠容器默认白底）', async () => {
+    await mountShell()
+    const rootEl = wrapper.find(`[data-node-id="${store.rootId}"]`)
+    expect(rootEl.attributes('style') ?? '').not.toContain('background')
+    expect(wrapper.find('[data-role="canvas-grid"]').exists()).toBe(true)
+  })
 })

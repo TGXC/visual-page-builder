@@ -12,6 +12,8 @@ interface MenuItem {
   key: string
   label: string
   disabled?: boolean
+  /** 置灰原因写进 title，术语不进菜单文案：菜单里永远有一项叫「删除」 */
+  title?: string
   run: () => void
 }
 
@@ -21,7 +23,13 @@ const items = computed<MenuItem[]>(() => {
   const deletable = store.selectedIds.filter((id) => id !== store.rootId && !store.nodes[id]?.meta.locked)
   const lockedOnly = hasSelection && deletable.length === 0
   const hasRoot = store.selectedIds.includes(store.rootId)
-  const deleteLabel = lockedOnly ? (hasRoot ? '这是页面画布，删不掉' : '元素已锁定，先解锁') : '删除'
+  const deleteTitle = !hasSelection
+    ? '先选中要删除的元素'
+    : lockedOnly
+      ? hasRoot
+        ? '这是页面画布本身（根容器），删不掉'
+        : '元素已锁定，先解锁再删除'
+      : '删除选中的元素 (Delete)'
   return [
     { key: 'copy', label: '复制', disabled: !hasSelection, run: () => store.copySelection() },
     { key: 'paste', label: '粘贴', disabled: !store.clipboard, run: () => store.pasteClipboard() },
@@ -32,7 +40,8 @@ const items = computed<MenuItem[]>(() => {
     { key: 'paste-style', label: '粘贴样式', disabled: !hasSelection || !store.styleClipboard, run: () => store.pasteStyleToSelection() },
     {
       key: 'delete',
-      label: deleteLabel,
+      label: '删除',
+      title: deleteTitle,
       disabled: !store.canRemoveSelection,
       run: () => store.removeSelection(),
     },
@@ -76,6 +85,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onWindowPointerD
       class="context-menu__item"
       :class="{ 'context-menu__item--disabled': item.disabled }"
       :data-action="item.key"
+      :title="item.title"
       :disabled="item.disabled"
       @click="onClick(item)"
     >

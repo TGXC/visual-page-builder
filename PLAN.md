@@ -192,6 +192,17 @@ npm run build
 **验收**：`tests/component/selection.spec.ts` 增 3 例（新建模板页后不选中根且 Delete 不产生「根」提示、模板页上的真实元素 Delete 能删掉、只有根被选中时按钮禁用且出现画布提示）；全量 `npm test` 51 文件 / 577 用例、覆盖率 97.18 / 90.56 / 97.37 / 99.35、`lint` 0、`build` 0 类型错误（JS 280.48 kB / gzip 96.71，CSS 22.45 kB 不变）、`test:perf` 布局 3.92ms / 导出 98.58ms、`test:smoke` 通过。**未做**：`store.select(rootId)` 本身仍合法（改页面背景要用它），没有做独立的「页面设置」入口；键盘 Delete 在输入框聚焦时仍被 `isTyping` 拦掉、页面 ✕ 仍只在多页时出现（设计如此）。
 
 
+### M12 模板页上的网格与右键删除（计划外，用户第四轮反馈）
+
+**触发**：用户第四轮反馈「但此时画布的方格没了，而且右键为什么没有删除选项了」。这两条都只在模板页上出现，是 M11 改动之后暴露出来的。
+
+**根因**：① 模板的根 frame 自带不透明底色（`frame()` 默认 `#FFFFFF`，landing `#FFFFFF`、login `#F8FAFC`、profile `#0F172A`），它铺满整页、渲染在网格层之上，把网格整个盖住；空白项目的根 `bg` 是空串，所以只有模板页看不见格子。② 右键页面空白处命中的是根 frame，`onStageContextMenu` 把它塞进选区，而删除项自 M11 起在不可删时会把文案换成「这是页面画布，删不掉」——用户看到的就是「右键菜单里没有删除」。探针（`zzProbeM12*.spec.ts`，跑完已删）逐项确认：右键矩形 → 删除可用；右键根 → `text="这是页面画布，删不掉" disabled=true`；模板页根元素 style 带 `background: rgb(255,255,255)`。
+
+**做了什么**：① 根 frame 的底色改由 `.canvas-page` 承担（`CanvasStage` 新增 `pageStyle` computed，用 `resolveStyle()` 解析根节点样式后只取 `bg` 与 `radius`），`ElementView` 对 `parentId === null` 的根节点用摘掉 `bg` 的副本调 `inlineStyle()`，网格层因此回到页面底色与元素之间（D66）；② `onStageContextMenu` 命中根 frame 时不再改选区（视为右键空白，保不住原选中元素的删除入口也一并保住）；③ 右键菜单删除项的文案固定为「删除」，不可用的原因写进按钮 `title`（未选中 / 根容器 / 已锁定三种）。
+
+**验收**：新增 `tests/component/contextmenu.spec.ts` 5 例（右键元素可删、右键根不改选区且置灰带 title、已选中元素后右键空白仍可删、右键锁定元素置灰、根被程序性选中时文案仍是「删除」）+ `selection.spec.ts` 增 2 例（模板页 `.canvas-page` 有 `background` 且根元素没有、网格层是 `.canvas-page` 首子元素），全量 `npm test` 52 文件 / 584 用例、覆盖率 97.18 / 90.56 / 97.37 / 99.35、`lint` 0、`build` 0 类型错误（JS 281.01 kB / gzip 96.88，CSS 22.45 kB 不变）、`test:perf` 布局 4.95ms / 导出 131.58ms、`test:smoke` 通过（`inlineStyles 0` / `mediaQueries 2` / `zipBytes 6905`）。**未做**：根 frame 的底色画布与导出仍是两条路径；根圆角搬到 `.canvas-page` 但容器没有 `overflow: hidden`（根圆角很大时子元素会溢出圆角）；右键空白不再选根，所以改页面背景仍得走图层/主题面板；网格线颜色固定浅灰，深色模板页上偏亮，也没有隐藏网格开关。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

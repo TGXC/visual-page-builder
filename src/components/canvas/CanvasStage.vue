@@ -15,6 +15,7 @@ import { instanceIdOf } from '@/core/symbols'
 import type { SpacingHint } from '@/core/spacing'
 import { spacingHints } from '@/core/spacing'
 import { isDescendantOf } from '@/core/tree'
+import { resolveStyle } from '@/core/theme'
 import { useEditorStore } from '@/stores/editor'
 import ElementView from './ElementView.vue'
 
@@ -65,6 +66,23 @@ const gridStyle = computed(() => {
   const major = 64 * store.zoom
   return {
     backgroundSize: `${minor}px ${minor}px, ${minor}px ${minor}px, ${major}px ${major}px, ${major}px ${major}px`,
+  }
+})
+
+/**
+ * 页面根 frame 的底色画在这一层（ElementView 对根节点摘掉了 bg）：
+ * 网格层是 `.canvas-page` 的子元素，页面底色放在容器上，网格才不会被根盖住。
+ */
+const pageStyle = computed(() => {
+  const node: SceneNode | undefined = view.value[store.rootId]
+  const style = node ? resolveStyle(node.style, store.doc.theme) : undefined
+  const bg = style?.bg ?? ''
+  const radius = style?.radius ?? 0
+  return {
+    width: `${vw.value * store.zoom}px`,
+    height: `${vh.value * store.zoom}px`,
+    ...(bg ? { background: bg } : {}),
+    ...(radius > 0 ? { borderRadius: `${radius}px` } : {}),
   }
 })
 
@@ -433,7 +451,9 @@ function onStageContextMenu(event: MouseEvent): void {
   const nodeEl = typeof target?.closest === 'function' ? (target.closest('[data-node-id]') as HTMLElement | null) : null
   if (nodeEl) {
     const id = nodeEl.dataset.nodeId as NodeId
-    if (!store.selectedIds.includes(id)) store.select(id)
+    // 命中根 frame 等于右键了页面空白：不把根塞进选区（否则菜单里的「删除」会被置灰换文案，
+    // 看着就像没有删除项），已有选区保持不动，用户可以直接删掉之前选中的元素。
+    if (id !== store.rootId && !store.selectedIds.includes(id)) store.select(id)
   }
   emit('context-menu', { x: event.clientX, y: event.clientY })
 }
@@ -499,7 +519,7 @@ onBeforeUnmount(() => {
     <div
       ref="pageRef"
       class="canvas-page"
-      :style="{ width: `${vw * store.zoom}px`, height: `${vh * store.zoom}px` }"
+      :style="pageStyle"
     >
       <div class="canvas-page__grid" data-role="canvas-grid" :style="gridStyle" />
       <div class="canvas-page__inner" :style="{ width: `${vw}px`, height: `${vh}px`, transform: `scale(${store.zoom})` }">

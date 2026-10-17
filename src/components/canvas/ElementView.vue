@@ -44,9 +44,18 @@ const mutedContent = computed(
 const backgroundImage = computed(() => (props.node.type === 'image' ? safeUrl(String(props.node.props.src ?? '')) : ''))
 /** 几何来自布局引擎（store.boxes），free 之外的模式也拿到绝对盒 */
 const box = computed(() => store.boxes[props.node.id])
+/**
+ * 页面根 frame 的底色不画在自己身上：根铺满整页，一画就会盖住下面那层网格。
+ * 底色改由 `.canvas-page` 承担（见 CanvasStage 的 pageStyle），网格层才能露出来。
+ */
+const isPageRoot = computed(() => props.node.parentId === null)
+const styleNode = computed<SceneNode>(() =>
+  isPageRoot.value ? { ...props.node, style: { ...props.node.style, bg: '' } } : props.node,
+)
 const style = computed(() => {
-  const css = inlineStyle(props.node, backgroundImage.value, box.value)
-  return `${css};${props.node.type === 'divider' ? 'background:' + (props.node.style.bg || '#E2E8F0') + ';' : ''}`
+  const node = styleNode.value
+  const css = inlineStyle(node, backgroundImage.value, box.value)
+  return `${css};${node.type === 'divider' ? 'background:' + (node.style.bg || '#E2E8F0') + ';' : ''}`
 })
 const showHandles = computed(() => props.interactive !== false && selected.value && store.selectedIds.length === 1 && !props.node.meta.locked)
 const handleSize = computed(() => 8 / props.scale)
