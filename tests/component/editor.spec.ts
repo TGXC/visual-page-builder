@@ -102,11 +102,40 @@ describe('M1 编辑器：画布交互与面板', () => {
     ])
   })
 
-  it('点击组件面板往画布加元素，并出现在图层里', async () => {
+  it('M22：点击组件面板只在右侧显示默认属性与说明，不插入画布', async () => {
+    const before = Object.keys(store.nodes).length
     await wrapper.find('.palette-item[data-type="button"]').trigger('click')
-    const id = Object.values(store.nodes).find((node) => node.type === 'button')!.id
-    expect(wrapper.find(`.canvas-el[data-node-id="${id}"]`).exists()).toBe(true)
-    expect(wrapper.find(`.layer-row[data-layer-id="${id}"]`).exists()).toBe(true)
+    await flush()
+
+    // 点击只选中，不新增元素
+    expect(Object.keys(store.nodes).length).toBe(before)
+    // 右侧换成这个组件的默认属性与说明
+    expect(wrapper.find('[data-role="palette-props"]').exists()).toBe(true)
+    expect(wrapper.find('[data-role="palette-type"]').text()).toContain('按钮')
+    expect(wrapper.find('[data-role="palette-category"]').text()).toBe('基础')
+    expect(wrapper.find('[data-role="palette-size"]').text()).toMatch(/^\d+ × \d+$/)
+    expect(wrapper.find('[data-role="palette-doc"]').text().length).toBeGreaterThan(0)
+    expect(wrapper.find('[data-role="props-empty"]').exists()).toBe(false)
+    // 面板项高亮，再点一次取消
+    expect(wrapper.find('.palette-item[data-type="button"]').classes()).toContain('is-active')
+    await wrapper.find('.palette-item[data-type="button"]').trigger('click')
+    await flush()
+    expect(wrapper.find('[data-role="palette-props"]').exists()).toBe(false)
+    expect(wrapper.find('[data-role="props-empty"]').exists()).toBe(true)
+    expect(wrapper.find('.palette-item[data-type="button"]').classes()).not.toContain('is-active')
+  })
+
+  it('M22：点选组件面板后选中画布元素，右侧回到元素属性', async () => {
+    const id = store.insertComponent('text', { position: { x: 40, y: 40 } })
+    await wrapper.find('.palette-item[data-type="table"]').trigger('click')
+    await flush()
+    expect(wrapper.find('[data-role="palette-props"]').exists()).toBe(true)
+
+    store.select(id)
+    await flush()
+    expect(wrapper.find('[data-role="palette-props"]').exists()).toBe(false)
+    expect(wrapper.find('[data-role="prop-type"]').text()).toContain('文本')
+    expect(wrapper.find('.palette-item[data-type="table"]').classes()).not.toContain('is-active')
   })
 
   it('从面板拖入画布：元素落在指针位置', async () => {
@@ -147,7 +176,7 @@ describe('M1 编辑器：画布交互与面板', () => {
   })
 
   it('状态栏显示当前界面版本号（对不上就是浏览器缓存了旧文件）', async () => {
-    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M21')
+    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M22')
   })
 
   it('拖动元素改位置，Ctrl+Z 撤销回原位', async () => {

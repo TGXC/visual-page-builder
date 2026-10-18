@@ -228,11 +228,43 @@ export function normalizeOverrides(raw: unknown): Record<string, NodeOverride> {
   return overrides
 }
 
+/**
+ * M22：M21 之前的输入类组件（输入框 / 文本域）沿用了 v1 的占位灰 `#64748B` 当正文色，
+ * 且提示文字放在 `props.text` 而不是 `placeholder`。旧文档 / 导入文件里这两处都要迁移：
+ * 只迁移「还是 v1 默认灰」的字色（用户自己挑过的其它颜色不动），并把非空 text 搬到
+ * placeholder —— 否则旧文档在 M21 之后看起来仍是「文字淡灰、输入后占位提示不消失」。
+ */
+const LEGACY_INPUT_TYPES: ReadonlySet<ComponentType> = new Set<ComponentType>(['input', 'textarea'])
+const LEGACY_INPUT_COLOR = '#64748B'
+
+function migrateLegacyInput(node: SceneNode): SceneNode {
+  if (!LEGACY_INPUT_TYPES.has(node.type)) return node
+  const nextColor = defaultStyleFor(node.type).color
+  if (node.style.color.toUpperCase() === LEGACY_INPUT_COLOR) {
+    node.style = { ...node.style, color: nextColor ?? node.style.color }
+  }
+  // 断点覆盖里的字色同样可能来自旧的 v1 默认值
+  for (const [breakpointId, override] of Object.entries(node.overrides)) {
+    const legacyColor = override.style?.color
+    if (!override.style || legacyColor?.toUpperCase() !== LEGACY_INPUT_COLOR) continue
+    node.overrides[breakpointId] = {
+      ...override,
+      style: { ...override.style, color: nextColor ?? legacyColor },
+    }
+  }
+  const placeholder = node.props.placeholder
+  const text = node.props.text
+  if ((placeholder === undefined || placeholder === '') && typeof text === 'string' && text !== '') {
+    node.props = { ...node.props, placeholder: text, text: '' }
+  }
+  return node
+}
+
 export function normalizeNode(raw: unknown, fallbackId?: string): SceneNode {
   const source = isRecord(raw) ? raw : {}
   const type = normalizeType(source.type)
   const id = stringOr(source.id, fallbackId ?? createId('n'))
-  return {
+  const node: SceneNode = {
     id,
     type,
     parentId: typeof source.parentId === 'string' && source.parentId.length > 0 ? source.parentId : null,
@@ -243,6 +275,7 @@ export function normalizeNode(raw: unknown, fallbackId?: string): SceneNode {
     overrides: normalizeOverrides(source.overrides),
     meta: normalizeMeta(source.meta),
   }
+  return migrateLegacyInput(node)
 }
 
 /**

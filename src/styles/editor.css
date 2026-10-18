@@ -447,6 +447,32 @@ textarea.editor-input {
   box-shadow: var(--studio-shadow-sm, 0 1px 2px rgb(15 23 42 / 5%));
 }
 
+/* M22：点选（只查看属性、不插入）后的高亮；拖拽仍然是唯一的插入方式 */
+.palette-item.is-active {
+  border-color: var(--studio-primary, #2563eb);
+  background: var(--studio-primary-soft, #eff6ff);
+  color: var(--studio-primary, #2563eb);
+  box-shadow: inset 0 0 0 1px var(--studio-primary, #2563eb);
+}
+
+.palette-props__icon {
+  margin-right: 4px;
+}
+
+.palette-props__value {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--studio-text, #0f172a);
+}
+
+.palette-props__doc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--studio-text-weak, #475569);
+}
+
 .palette-item__icon {
   width: 16px;
   text-align: center;

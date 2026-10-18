@@ -4,7 +4,7 @@
  * 多选时只提供批量对齐与删除（与 v1 行为一致）。
  */
 import { computed } from 'vue'
-import { componentLabel } from '@/core/components'
+import { categoryLabel, componentLabel, getComponent } from '@/core/components'
 import type { SceneNode, StyleSpec } from '@/core/schema/types'
 import { rectOf } from '@/core/geometry'
 import { CONTENT_KEYS, STYLE_KEYS } from '@/core/schema/catalog'
@@ -53,6 +53,23 @@ const NUMBER_KEYS = new Set([
 ])
 
 const node = computed<SceneNode | null>(() => (store.selectedIds.length === 1 ? store.primary : null))
+/**
+ * 组件面板里点中的类型（M22）：右侧先显示它的默认属性与说明，不插入画布。
+ * 一旦选中了画布元素就让位给真正的属性编辑。
+ */
+const palette = computed(() => {
+  if (!store.paletteType || store.selectedIds.length > 0) return null
+  return getComponent(store.paletteType) ?? null
+})
+const paletteProps = computed(() => {
+  const entries = Object.entries(palette.value?.defaultProps ?? {})
+  return entries.filter(([, value]) => value !== '' && value !== undefined && value !== null)
+})
+const palettePropsText = computed(() =>
+  paletteProps.value.length === 0
+    ? '无（用描述符默认值）'
+    : paletteProps.value.map(([key, value]) => `${LABELS[key] ?? key}：${String(value)}`).join('；'),
+)
 const box = computed(() => (node.value ? rectOf(node.value) : null))
 const breakpointLabel = computed(
   () => store.breakpoints.find((item) => item.id === store.breakpointId)?.label ?? store.breakpointId,
@@ -146,7 +163,27 @@ function copyStyle(): void {
   <section class="panel panel--props">
     <h2 class="panel__title">属性</h2>
 
-    <p v-if="store.selectedIds.length === 0" class="panel__empty" data-role="props-empty">选中画布上的元素以编辑属性</p>
+    <p v-if="store.selectedIds.length === 0 && !palette" class="panel__empty" data-role="props-empty">选中画布上的元素以编辑属性</p>
+
+    <div v-else-if="palette" class="prop-form palette-props" data-role="palette-props">
+      <p class="prop-type" data-role="palette-type">
+        <span class="palette-props__icon">{{ palette.icon }}</span>
+        {{ palette.label }}
+        <span class="prop-type__id">{{ palette.type }}</span>
+      </p>
+      <p class="panel__hint">还没插入。拖到画布上才会添加，下面是它的默认属性。</p>
+      <p class="prop-section">分类</p>
+      <p class="palette-props__value" data-role="palette-category">{{ categoryLabel(palette.category) }}</p>
+      <p class="prop-section">默认尺寸</p>
+      <p class="palette-props__value" data-role="palette-size">{{ palette.defaultSize.w }} × {{ palette.defaultSize.h }}</p>
+      <p class="prop-section">默认内容</p>
+      <p class="palette-props__value" data-role="palette-props-list">{{ palettePropsText }}</p>
+      <p class="prop-section">可覆盖字段</p>
+      <p class="palette-props__value">{{ palette.overridable.length > 0 ? palette.overridable.join('、') : '—' }}</p>
+      <p class="prop-section">说明</p>
+      <p class="palette-props__doc" data-role="palette-doc">{{ palette.aiDoc }}</p>
+      <button type="button" class="ghost-button" data-role="palette-clear" @click="store.selectPalette(null)">取消选择</button>
+    </div>
 
     <template v-else-if="store.selectedIds.length > 1">
       <p class="panel__hint" data-role="multi-hint">已选中 {{ store.selectedIds.length }} 个元素</p>

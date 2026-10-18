@@ -324,3 +324,42 @@ describe('normalizeSize / normalizeBreakpoints / normalizeTheme', () => {
     expect(normalizeNodes('not-an-object', 'r')).toEqual({})
   })
 })
+
+describe('M22 旧文档输入类的迁移', () => {
+  function inputNode(extra: Record<string, unknown>): Page {
+    return normalizeDoc({
+      pages: [
+        {
+          id: 'p1',
+          root: 'r',
+          nodes: {
+            r: { id: 'r', type: 'frame', parentId: null },
+            i: { id: 'i', type: 'input', parentId: 'r', ...extra },
+          },
+        },
+      ],
+    })!.pages[0]
+  }
+
+  it('v1 占位灰 #64748B 迁成正文色，text 搬到 placeholder', () => {
+    const page = inputNode({ style: { color: '#64748B' }, props: { text: '请输入…' } })
+    expect(page.nodes.i.style.color).toBe('#1E293B')
+    expect(page.nodes.i.props.placeholder).toBe('请输入…')
+    expect(page.nodes.i.props.text).toBe('')
+  })
+
+  it('用户自己挑的颜色不动，已有 placeholder 时 text 保留', () => {
+    const page = inputNode({ style: { color: '#FF0000' }, props: { text: '标签', placeholder: '手机号' } })
+    expect(page.nodes.i.style.color).toBe('#FF0000')
+    expect(page.nodes.i.props.placeholder).toBe('手机号')
+    expect(page.nodes.i.props.text).toBe('标签')
+  })
+
+  it('断点覆盖里的旧灰色也一起迁移', () => {
+    const page = inputNode({
+      style: { color: '#64748B' },
+      overrides: { mobile: { style: { color: '#64748B' } } },
+    })
+    expect(page.nodes.i.overrides.mobile?.style?.color).toBe('#1E293B')
+  })
+})

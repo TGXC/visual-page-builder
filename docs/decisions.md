@@ -692,6 +692,22 @@
 
 **代价**：`customText` 的判定是「文字 ≠ 默认值」而不是「用户是否操作过」——把文字改回默认字面值（比如把容器文字又输回「容器」）会重新显示提示，「重置」只能重新拖一个组件；颜色只改默认值，已经被用户手改过颜色的节点不受影响；导出侧 `.el__muted` 仍是 `opacity: .65`，与编辑器的 `--studio-text-weak` 是两套弱化实现（导出页面没有编辑器 token）；输入类默认提示从 `text` 搬到 `placeholder`，与 v1 迁移表不一致，靠单测的 `M21_OVERRIDES` 锁住，以后若改 v1 表要同步删掉这层覆盖。
 
+## D85：旧文档里停在 v1 占位灰的输入类，在收敛层一次性迁移字色与 `placeholder`
+
+**决定**：`src/core/schema/normalize.ts` 新增 `migrateLegacyInput(node)`，在 `normalizeNode()` 返回前执行：①`input` / `textarea` 的 `style.color` 若仍是 v1 的占位灰 `#64748B`（大小写不敏感比较），换成描述符默认正文色；断点 `overrides[breakpointId].style.color` 里同样的灰也一起换；②`props.placeholder` 为空（或缺失）且 `props.text` 非空时，把 `text` 搬进 `placeholder` 并清空 `text`。除了这个字面值，其它颜色一律不动。
+
+**理由**：用户 m13297 接着 M21 说「问题还在」。M21 改的是描述符默认值，只对**新建节点**生效；旧文档 / 导入文件里节点自己存着 `style.color: '#64748B'` 与 `props.text: '请输入…'`，`normalizeStyle()` 会优先采用存储值，所以画布按旧灰渲染、提示也还在 `text` 里——用户看到的就是「改过但没变」。迁移放在收敛层而不是读取时特判：所有入口（本地存档、导入 JSON、v1 迁移、AI 草稿、分享链接）都必须经过 `normalizeDoc()`，一处迁移就能覆盖全部入口，且导出/序列化拿到的就是修好的文档，不需要渲染层到处判断「这是不是旧值」。
+
+**代价**：只在加载路径执行一次——已经加载进内存的文档要刷新页面或重新导入才会迁移；迁移只认 `#64748B` 这个字面值，用户恰好手工挑了同一个灰会被当成「没改过」换成正文色，其它灰阶不受影响；把 `props.text` 搬进 `placeholder` 并清空 `text` 意味着旧节点若拿 `text` 当语义 label 用会丢 label（旧版本里输入类的 `text` 在画布/导出本来就不显示，按「不可见内容」处理）。
+
+## D86：组件面板点击只进入「看属性」的点选态，拖拽是唯一插入通道
+
+**决定**：Store 新增与 `selectedIds` 互斥的 `paletteType`（`ref<SceneNode['type'] | null>`）与 `selectPalette(type | null)`；`select()` / `selectMany()` / `clearSelection()` / `insertComponent()` 都会把 `paletteType` 置空。`PalettePanel` 的 `@click` 从 `store.insertComponent(type)` 改成 `store.selectPalette(store.paletteType === type ? null : type)`（再点一次取消），面板项按 `paletteType` 加 `.is-active` 高亮与 `aria-pressed`，标题文案改成「点击查看属性，拖入画布添加」；同时删掉 M18 为「拖拽后浏览器补发 click 导致多插一个」加的「400ms 内的 click 忽略」守卫（点击不再插入，这个守卫失去意义）。`PropPanel` 在 `store.selectedIds.length === 0 && palette` 时渲染只读信息块（`data-role="palette-props"`：分类 / 默认尺寸 / 默认内容 / 可覆盖字段 / `aiDoc` 说明 + 「取消选择」按钮），`core/components` 相应导出 `categoryLabel()`。
+
+**理由**：用户 m13297 明确要求「左边组件改为点击选择（可以看到右边的属性等），但只能拖拽到画布」。旧行为是点击即插入，用户想先看看某类组件的默认属性（尺寸、默认文案、可覆盖字段）再决定拖不拖，根本没有入口；点击插入还容易在拖拽手势尾巴上多插一个（M18 的 400ms 守卫就是补丁）。把「面板选中」与「画布选中」做成互斥的两个轻量状态，右侧面板按「有节点选中 → 编辑属性；只有面板选中 → 显示该类型的只读默认信息」分支，既满足「点击看属性」，又保持「拖拽才插入」这一条唯一的写入路径。
+
+**代价**：点选态是「轻选择」——不进撤销栈、不进图层面板，切页/新建/撤销后可能仍停着（只在画布选择或插入时清），要退出得点「取消选择」或再点一次该组件；点选态下右侧只读，不能「先改默认值再拖进画布」，必须先拖进去再在属性面板改；`paletteType` 只记类型、不记实例，本来也不该有实例概念。
+
 
 
 

@@ -147,6 +147,14 @@ function initialDoc(): Doc {
 export const useEditorStore = defineStore('editor', () => {
   const history = ref<HistoryState>(createHistory(initialDoc()))
   const selectedIds = ref<NodeId[]>([])
+  /**
+   * 组件面板里「点中但还没拖进画布」的类型（M22）。
+   *
+   * 用户要求：点组件面板只是选中，让右侧属性面板显示这个组件的默认属性与说明，
+   * 不往画布插入；只有拖拽才插入。所以它是一个和 `selectedIds` 互斥的轻量选择态，
+   * 任何画布选择 / 插入都会把它清掉。
+   */
+  const paletteType = ref<SceneNode['type'] | null>(null)
   const hoveredId = ref<NodeId | null>(null)
   const pointer = ref({ x: 0, y: 0 })
   const zoom = ref(1)
@@ -315,6 +323,7 @@ export const useEditorStore = defineStore('editor', () => {
   }
 
   function select(id: NodeId | null, additive = false): void {
+    paletteType.value = null
     if (id === null) {
       selectedIds.value = []
       return
@@ -333,10 +342,18 @@ export const useEditorStore = defineStore('editor', () => {
   function selectMany(ids: NodeId[]): void {
     const real = ids.map(realId).filter((id) => Boolean(nodes.value[id]))
     selectedIds.value = [...new Set(real)]
+    paletteType.value = null
   }
 
   function clearSelection(): void {
     selectedIds.value = []
+    paletteType.value = null
+  }
+
+  /** 点组件面板：只看不插（M22）；传 null 取消。 */
+  function selectPalette(type: SceneNode['type'] | null): void {
+    paletteType.value = type
+    if (type) selectedIds.value = []
   }
 
   /**
@@ -363,6 +380,7 @@ export const useEditorStore = defineStore('editor', () => {
     const node = createNode(type, { parentId, order: nextOrder(nodes.value, parentId), position })
     commit(`添加${type}`, [insertPatch(activePage.value.id, node)])
     selectedIds.value = [node.id]
+    paletteType.value = null
     return node.id
   }
 
@@ -1386,6 +1404,7 @@ export const useEditorStore = defineStore('editor', () => {
     rootId,
     topLevel,
     selectedIds,
+    paletteType,
     selection,
     primary,
     primaryRaw,
@@ -1415,6 +1434,7 @@ export const useEditorStore = defineStore('editor', () => {
     boxes,
     viewport,
     select,
+    selectPalette,
     selectNext,
     selectParent,
     selectionPath,

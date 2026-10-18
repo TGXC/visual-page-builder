@@ -13,7 +13,6 @@ import {
   subscribeRegistry,
 } from '@/core/components'
 import type { ComponentDescriptor } from '@/core/components'
-import type { ComponentType } from '@/core/schema/types'
 
 const store = useEditorStore()
 const keyword = ref('')
@@ -57,21 +56,16 @@ function toggle(key: string): void {
 }
 
 /**
- * 上一次 dragstart 的时间。有些浏览器（以及拖拽被中断的手势）会在 drag 结束后再补一个 click，
- * 结果是「拖进画布一个组件，面板又点了一次 → 多出一个」——用户看到的就是「拖动时复制了一份」。
- * dragstart 之后 400ms 内的 click 一律当作拖拽的尾巴忽略掉。
+ * 拖拽只负责带类型进画布；点击不插入，只让右侧属性面板显示这个组件的默认属性与说明（M22）。
+ * 再点一次同一个组件即取消选中。
  */
-let dragStartedAt = 0
-
 function onDragStart(event: DragEvent, type: string): void {
-  dragStartedAt = Date.now()
   event.dataTransfer?.setData('text/plain', type)
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
 }
 
-function add(type: ComponentType): void {
-  if (Date.now() - dragStartedAt < 400) return
-  store.insertComponent(type)
+function pick(type: string): void {
+  store.selectPalette(store.paletteType === type ? null : type)
 }
 </script>
 
@@ -104,11 +98,13 @@ function add(type: ComponentType): void {
           :key="item.type"
           type="button"
           class="palette-item"
+          :class="{ 'is-active': store.paletteType === item.type }"
           :data-type="item.type"
           draggable="true"
-          :title="`拖入画布或点击添加：${item.label}`"
+          :title="`点击查看属性，拖入画布添加：${item.label}`"
+          :aria-pressed="store.paletteType === item.type"
           @dragstart="onDragStart($event, item.type)"
-          @click="add(item.type)"
+          @click="pick(item.type)"
         >
           <span class="palette-item__icon">{{ item.icon }}</span>
           <span class="palette-item__label">{{ item.label }}</span>

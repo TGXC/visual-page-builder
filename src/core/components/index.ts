@@ -167,6 +167,11 @@ export function componentLabel(type: string): string {
   return registry.get(type)?.label ?? type
 }
 
+/** 分类中文名（M22：组件面板点选后右侧要显示「布局 / 表单 / …」） */
+export function categoryLabel(category: ComponentCategory): string {
+  return CATEGORY_LABELS[category] ?? category
+}
+
 /** 组件面板面向的清单：不含 `hidden: true` 的内部类型 */
 export function listComponents(): ComponentDescriptor[] {
   return [...registry.values()].filter((item) => item.hidden !== true)

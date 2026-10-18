@@ -299,6 +299,16 @@ npm run build
 **验收**：`npm test` 52 文件 / 607 用例、覆盖率 97.21 / 90.93 / 97.39 / 99.35、`lint` 0、`build` 0 类型错误（99 modules；JS 286.68 kB / gzip 98.93，CSS 29.97 kB / gzip 5.79）、`test:perf` 布局 5.00ms / 导出 145.49ms（CSS 43.09 / HTML 47.28 / 整站 47.70 / ZIP 7.51ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 7317`）。新增 2 例组件测试：容器双击输入后预设提示消失、清空后也不回来；输入框 / 文本域画布文字是正文色且提示可清空。`components.spec.ts` 更新空态提示断言（要带上默认文字）、登记 `M21_OVERRIDES`、新增「容器改过文字后不再显示空态提示」，`customDsl.spec.ts` 三处 fixture 补 `customText`，M5 导出结构快照更新。**未做**：颜色只改默认值（已经手改过颜色的节点不受影响）；导出侧 `.el__muted` 仍用 `opacity: .65`，与编辑器 token 两套实现；`customText` 判定「文字 ≠ 默认值」，改回默认字面值会重新出现提示；角标改正文色后「用户输入」与真内容更难区分；`text` 与 `placeholder` 仍是两个字段。
 
 
+### M22 旧文档输入类迁移与面板点选（计划外，用户第十四轮反馈）
+
+**触发**：用户第十四轮反馈两条——「问题还在」与「另外左边组件改为点击选择（可以看到右边的属性等），但只能拖拽到画布」。前半句是 M21 只改了新建节点的默认值、旧文档里的存量节点没变；后半句是交互约定变更：组件面板点击不插入，只用来在右侧查看该组件的默认属性与说明。
+
+**根因**：①M21 把输入类的正文色与默认提示搬到了描述符默认值（`#1E293B` + `placeholder`），但旧文档 / 导入文件里节点自己存着 v1 的占位灰 `#64748B` 和 `props.text` 里的提示语，`normalizeStyle()` 会优先采用存储值，所以画布按旧灰渲染，「改过但没变」；②`PalettePanel` 的 `@click` 直接调 `store.insertComponent()`，点一下就等于插入一个组件。
+
+**做了什么**：收敛层 `normalizeSchema` 新增 `migrateLegacyInput()`——`input` / `textarea` 的字色若仍是 v1 占位灰 `#64748B`（含断点 `overrides` 里的）换成描述符默认正文色；`props.placeholder` 为空且 `props.text` 非空时把 text 搬进 placeholder（旧版本里输入类的 text 本来不显示）。Store 新增与 `selectedIds` 互斥的轻选择态 `paletteType` 与 `selectPalette()`，`select()` / `selectMany()` / `clearSelection()` / `insertComponent()` 都会清掉它；`PalettePanel` 的点击改为点选（再点一次取消）、去掉「拖拽后 400ms 内 click 当尾巴」的旧守卫；`PropPanel` 在点选态渲染只读信息块（分类 / 默认尺寸 / 默认内容 / 可覆盖字段 / 说明）；`core/components` 导出 `categoryLabel()`；`editor.css` 加 `.palette-item.is-active` 与信息块排版；`BUILD_TAG` 改 `M22`（D85、D86）。
+
+**验收**：`npm test` 52 文件 / 611 用例、覆盖率 97.19 / 90.83 / 97.40 / 99.36、`lint` 0、`build` 0 类型错误（99 modules；JS 289.08 kB / gzip 99.75，CSS 30.40 kB / gzip 5.86）、`test:perf` 布局 4.06ms / 导出 83.13ms（CSS 25.27 / HTML 26.39 / 整站 27.13 / ZIP 4.33ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 7317`）。新增 3 例单测（旧输入框迁移、自定义色不动、断点覆盖一起迁移）与 2 例组件测试（点击只显示信息不插入、再点一次或选中画布元素退出点选态）。**未做**：迁移只在收敛层跑一次（内存中已加载的文档要刷新/重导才迁移）；只认 v1 灰字面值；text 搬走后 label 语义丢失；点选态不进撤销栈/图层面板，切页后可能仍停留；点选态右侧只读，不能先改默认值再拖入。
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。
