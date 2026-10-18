@@ -59,8 +59,19 @@ export interface ComponentDescriptor {
   icon: string
   /** 能否容纳子节点 */
   container: boolean
-  /** 双击能否直接编辑文字 */
+  /** 双击能否直接编辑文字（M20 起除内部类型外都支持） */
   editable: boolean
+  /**
+   * 双击编辑写哪个 props 字段：输入类写在 placeholder，其余默认 text。
+   * 外部自定义组件可以省略（按 text 处理）。
+   */
+  editKey?: string
+  /**
+   * 内容渲染里没有 text 的组件（布局容器/进度条/日期等）：
+   * 用户自定义过 text 时，在画布与导出里用 `.el__caption` 角标把文字显示出来，
+   * 否则「能双击输入但看不见」等于还是不能输入。省略即不显示角标。
+   */
+  caption?: boolean
   defaultSize: { w: number; h: number }
   /** 相对 DEFAULT_STYLE 的差异（解析时与 DEFAULT_STYLE 合并） */
   defaultStyle: Partial<StyleSpec>
@@ -165,6 +176,11 @@ export function isEditableType(type: string): boolean {
   return registry.get(type)?.editable === true
 }
 
+/** 双击编辑写入的 props 字段；未注册类型按 text 处理 */
+export function editKeyOf(type: string): string {
+  return registry.get(type)?.editKey ?? 'text'
+}
+
 export interface ComponentCategoryGroup {
   category: ComponentCategory
   label: string
@@ -250,18 +266,34 @@ export function renderContext(node: SceneNode, nodes: Record<NodeId, SceneNode>)
   }
 }
 
+/**
+ * 角标文字：给「内容里不渲染 text」的组件用（容器/进度条/日期……）。
+ *
+ * 只在用户把 text 改成**非默认值**时出现 —— 否则每个容器都会顶着
+ * 「容器」「表单」两个字，画布立刻变成一团标签。导出用同一份，
+ * 保证画布上看到的文字在导出的页面里也在。
+ */
+function captionOf(node: SceneNode, descriptor: ComponentDescriptor | undefined): string {
+  if (!descriptor?.caption) return ''
+  const text = raw(node, 'text')
+  if (text === '') return ''
+  const fallback = descriptor.defaultProps.text
+  if (typeof fallback === 'string' && text === fallback) return ''
+  return `<span class="el__caption">${escapeHtml(text)}</span>`
+}
+
 /** 导出用的内容 HTML；未注册类型回落到纯文本 */
 export function renderContent(node: SceneNode, nodes: Record<NodeId, SceneNode>): string {
   const descriptor = registry.get(node.type)
   if (!descriptor) return escapeHtml(raw(node, 'text'))
-  return descriptor.toHtml(renderContext(node, nodes))
+  return captionOf(node, descriptor) + descriptor.toHtml(renderContext(node, nodes))
 }
 
 /** 画布用的内容 HTML */
 export function renderCanvasContent(node: SceneNode, nodes: Record<NodeId, SceneNode>): string {
   const descriptor = registry.get(node.type)
   if (!descriptor) return escapeHtml(raw(node, 'text'))
-  return descriptor.toCanvasHtml(renderContext(node, nodes))
+  return captionOf(node, descriptor) + descriptor.toCanvasHtml(renderContext(node, nodes))
 }
 
 /* ------------------------------------------------------------------ 描述符定义 */
@@ -279,6 +311,10 @@ interface Spec {
   props?: Record<string, unknown>
   aiDoc: string
   overridable?: readonly string[]
+  /** 双击编辑的 props 字段，默认 `text`；输入类组件用 `placeholder` */
+  editKey?: string
+  /** 内容里不渲染 text 的组件，用角标文字展示用户输入的文字 */
+  caption?: boolean
   hidden?: boolean
   html?: (ctx: ComponentRenderContext) => string
   canvas?: (ctx: ComponentRenderContext) => string
@@ -307,7 +343,11 @@ function spec(input: Spec): ComponentDescriptor {
     category: input.category,
     icon: input.icon,
     container: input.container === true,
-    editable: input.editable === true,
+    // M20：双击改文字对所有对外组件开放（内部类型如 instance 仍关闭），
+    // 具体写哪个字段由 editKey 决定；内容里不显示 text 的组件用 caption 角标兜底。
+    editable: input.editable !== false && input.hidden !== true,
+    editKey: input.editKey ?? 'text',
+    caption: input.caption === true,
     defaultSize: size,
     defaultStyle: style,
     defaultProps: props,
@@ -335,6 +375,7 @@ const SPECS: Spec[] = [
     size: [480, 320],
     style: { bg: '#FFFFFF', radius: 8 },
     props: { text: '容器' },
+    caption: true,
     aiDoc: '容器（frame）：页面根节点或任意嵌套的布局盒子，可以装其它组件，支持四种排布模式。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
@@ -349,6 +390,7 @@ const SPECS: Spec[] = [
     size: [240, 160],
     style: { borderWidth: 1, borderColor: '#CBD5E1', radius: 8 },
     props: { text: '分组' },
+    caption: true,
     aiDoc: '分组（group）：把若干元素逻辑上归到一起，本身不带视觉样式，方便整体移动与显示隐藏。',
     overridable: ['bg', 'radius'],
     html: () => '',
@@ -363,6 +405,7 @@ const SPECS: Spec[] = [
     size: [600, 240],
     style: { bg: '#F8FAFC', radius: 8 },
     props: { text: '区块' },
+    caption: true,
     aiDoc: '区块（section）：一块有背景的页面区域，用来划分页面结构，内部可以继续放其它元素。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
@@ -377,6 +420,7 @@ const SPECS: Spec[] = [
     size: [480, 220],
     style: { borderWidth: 1, borderColor: '#E2E8F0', radius: 8 },
     props: { text: '弹性盒' },
+    caption: true,
     aiDoc: '弹性盒（container）：默认纵向排列子元素的布局盒子，可切换纵向、横向、网格排布。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
@@ -391,6 +435,7 @@ const SPECS: Spec[] = [
     size: [600, 200],
     style: { radius: 8 },
     props: { text: '分栏' },
+    caption: true,
     aiDoc: '分栏（columns）：横向排列子元素的容器，用来做左右并排的内容。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
@@ -401,6 +446,7 @@ const SPECS: Spec[] = [
     label: '分割线',
     category: 'layout',
     icon: '—',
+    caption: true,
     aiDoc: '分割线（divider）：一条水平分隔线，用背景色控制颜色与粗细。',
     overridable: ['bg'],
     html: () => '',
@@ -411,6 +457,7 @@ const SPECS: Spec[] = [
     label: '间距',
     category: 'layout',
     icon: '⇕',
+    caption: true,
     size: [200, 24],
     props: { text: '间距' },
     aiDoc: '间距（spacer）：一个占位空盒子，用来在元素之间制造空隙。',
@@ -481,6 +528,7 @@ const SPECS: Spec[] = [
     label: '矩形',
     category: 'basic',
     icon: '▢',
+    caption: true,
     aiDoc: '矩形（rect）：纯色或描边的矩形色块，常用来做背景、占位或装饰。',
     overridable: ['bg', 'radius', 'borderWidth', 'borderColor'],
   },
@@ -489,6 +537,7 @@ const SPECS: Spec[] = [
     label: '圆形',
     category: 'basic',
     icon: '◯',
+    caption: true,
     aiDoc: '圆形（circle）：圆形色块，把圆角设为尺寸的一半即可，常用于头像底座或装饰点。',
     overridable: ['bg'],
   },
@@ -515,6 +564,7 @@ const SPECS: Spec[] = [
     size: [480, 320],
     style: { bg: '#FFFFFF', radius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
     props: { text: '表单' },
+    caption: true,
     aiDoc: '表单容器（form）：容纳输入控件并负责整体提交的容器，导出为原生 form 标签。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
@@ -525,6 +575,8 @@ const SPECS: Spec[] = [
     label: '输入框',
     category: 'form',
     icon: '⌷',
+    // 输入类的可见文字是 placeholder，双击直接改它
+    editKey: 'placeholder',
     aiDoc: '输入框（input）：单行文本输入控件，用 placeholder 展示提示文字，可设置必填与校验。',
     overridable: ['placeholder', 'bg', 'color', 'radius', 'borderColor'],
     html: (ctx) => `<input type="text" placeholder="${escape(ctx.placeholder)}">`,
@@ -535,6 +587,7 @@ const SPECS: Spec[] = [
     label: '文本域',
     category: 'form',
     icon: '¶',
+    editKey: 'placeholder',
     aiDoc: '文本域（textarea）：多行文本输入控件，适合留言、描述一类长文本。',
     overridable: ['placeholder', 'bg', 'color', 'radius', 'borderColor'],
     html: (ctx) => `<textarea placeholder="${escape(ctx.placeholder)}"></textarea>`,
@@ -601,6 +654,7 @@ const SPECS: Spec[] = [
     icon: '⇥',
     size: [200, 32],
     props: { text: '滑块', sub: '50' },
+    caption: true,
     aiDoc: '滑块（slider）：在区间里拖动取值的控件，导出为 input type=range。',
     overridable: ['sub', 'bg', 'color'],
     html: (ctx) => {
@@ -617,6 +671,7 @@ const SPECS: Spec[] = [
     size: [180, 36],
     style: { bg: '#FFFFFF', color: '#1E293B', fontSize: 13, radius: 6, borderWidth: 1, borderColor: '#CBD5E1' },
     props: { text: '日期' },
+    caption: true,
     aiDoc: '日期（date）：选择年月日的输入控件，导出为 input type=date。',
     overridable: ['bg', 'color', 'radius'],
     html: (ctx) => `<input type="date" aria-label="${escape(ctx.label)}">`,
@@ -629,6 +684,7 @@ const SPECS: Spec[] = [
     size: [140, 36],
     style: { bg: '#FFFFFF', color: '#1E293B', fontSize: 13, radius: 6, borderWidth: 1, borderColor: '#CBD5E1' },
     props: { text: '数量', placeholder: '0' },
+    editKey: 'placeholder',
     aiDoc: '数字输入（number）：只接受数字的输入控件，可配合最小值与最大值使用。',
     overridable: ['placeholder', 'bg', 'color'],
     html: (ctx) => `<input type="number" placeholder="${escape(ctx.placeholder)}">`,
@@ -642,6 +698,7 @@ const SPECS: Spec[] = [
     size: [220, 36],
     style: { bg: '#FFFFFF', color: '#1E293B', fontSize: 13, radius: 6, borderWidth: 1, borderColor: '#CBD5E1' },
     props: { text: '选择文件' },
+    caption: true,
     aiDoc: '文件上传（file）：选择本地文件的控件，导出为 input type=file。',
     overridable: ['text', 'bg', 'color'],
     html: () => '<input type="file">',
@@ -654,6 +711,7 @@ const SPECS: Spec[] = [
     size: [160, 28],
     style: { color: '#F59E0B', fontSize: 16 },
     props: { text: '评分', sub: '5' },
+    caption: true,
     aiDoc: '评分（rating）：用星星表示评价分数的控件，数量由 sub 属性决定。',
     overridable: ['sub', 'color'],
     html: (ctx) => {
@@ -821,6 +879,7 @@ const SPECS: Spec[] = [
     size: [240, 16],
     style: { bg: '#E2E8F0', radius: 999 },
     props: { text: '进度', sub: '60' },
+    caption: true,
     aiDoc: '进度条（progress）：用 0 到 100 的数值表示完成度，导出为原生 progress 标签。',
     overridable: ['sub', 'bg'],
     html: (ctx) => {

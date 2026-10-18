@@ -276,6 +276,18 @@ npm run build
 **验收**：`npm test` 52 文件 / 601 用例、覆盖率 97.20 / 90.66 / 97.38 / 99.35、`lint` 0、`build` 0 类型错误（99 modules；JS 285.36 kB / gzip 98.62，CSS 29.86 kB / gzip 5.77）、`test:perf` 布局 5.23ms / 导出 134.01ms（CSS 42.52 / HTML 45.26 / 整站 42.12 / ZIP 8.09ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 6905`）。**未做**：真实浏览器手感仍靠目测（jsdom 不跑布局，`store.boxes` 来自 `computeLayout()` 而非浏览器测量）；换父级时位置由 `core/dnd` 重新换算、不沿用 `rels`；磁吸目标仍是所有非隐藏节点；只有出现过断点覆盖的元素才会触发旧 bug，没有覆盖时基准几何 = 有效几何（这也是前几轮难复现的原因）。
 
 
+### M20 双击编辑全开放与表格对齐（计划外，用户第十二轮反馈）
+
+**触发**：用户第十二轮反馈两条——「有部分组件无法输入文本，如所有布局组件，表单容器，输入框，文本域，进度条等」与「表格的水平对齐基本毫无作用」。两条都是「能力在，但被挡住/盖掉」：前者是行内编辑的 `editable` 白名单太窄（只有 9 类标了 `true`），后者是编辑器 CSS 的 `text-align: left` 把节点上的对齐声明盖掉。
+
+**根因**：①`ElementView` 的 `@dblclick` 在 `if (!editable) return` 处直接返回，40 类组件里只有 text/heading/button/link/badge/nav/header/card 标了 `editable: true`；②输入类即使能弹出编辑框，`startEdit()` 也只写 `text`，而画布显示的是 `placeholder`——「能输入但看不见」；③`.canvas-el__content .el__table th/td { text-align: left }` 的优先级高于节点类上的 `text-align`，`th` 的浏览器默认还是 `center`，于是「点居中没反应」「表头从来居左」两种错觉并存。
+
+**做了什么**：`ComponentDescriptor` 新增可选 `editKey`（默认 `'text'`；input/textarea/number 为 `'placeholder'`）与 `caption`（内容里没有文字的 15 个组件置 `true`），`spec()` 里 `editable` 改成「除 root/page/instance/symbol 外全开放」；新增 `editKeyOf()` 与 `captionOf()`，后者只在「用户改过 text」（非空且不等于默认 props）时输出 `<span class="el__caption">`，由 `renderContent()` / `renderCanvasContent()` 统一加前缀，画布与导出同一套规则；`CanvasStage.startEdit()` 按 `editKeyOf(type)` 读写 `props[editKey]`，行内输入框的 `placeholder` 跟着变（`文字内容` / `占位文字`），子标题编辑条件也改看当前断点节点。表格：`editor.css` 的 `th/td` 改 `text-align: inherit`，`BASE_CSS` 补 `.el__table` 与 `th/td` 基础规则、`.el__caption` 样式（D82、D83）。
+
+**验收**：`npm test` 52 文件 / 604 用例、覆盖率 97.21 / 90.67 / 97.39 / 99.35、`lint` 0、`build` 0 类型错误（99 modules；JS 286.25 kB / gzip 98.86，CSS 29.94 kB / gzip 5.79）、`test:perf` 布局 4.06ms / 导出 108.99ms（CSS 29.71 / HTML 35.60 / 整站 32.48 / ZIP 5.13ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 7345`）。新增 3 例组件测试：双击布局组件写 `text` 并显示角标且默认文字不显示、双击输入框写 `placeholder` 且画布立刻可见、表格居中时画布与导出 CSS 都真的居中且没被 `th/td` 盖掉；同步更新 `editable` 语义断言与 M5 导出结构快照。**未做**：`editable` 语义放宽后自定义组件不能再单独关掉中文编辑；角标只是兜底可视化、多行会被裁掉；输入类的 `text`（label 语义）仍要去属性面板改；表格对齐靠继承链、`th` 不再默认居中；画布与导出的盒模型仍是两套规则（`editor.css` 与 `BASE_CSS` 各一份）。
+
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

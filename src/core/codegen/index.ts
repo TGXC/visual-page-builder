@@ -174,10 +174,15 @@ export const BASE_CSS = [
   '.el { position: absolute; box-sizing: border-box; overflow: hidden; }',
   '.el__muted { font-size: 0.9em; opacity: 0.65; }',
   '.el__title { font-size: 1.2em; font-weight: 600; }',
+  '.el__caption { font-size: 12px; line-height: 1.4; opacity: 0.6; }',
   '.sub { font-size: 0.8em; opacity: 0.72; margin-top: 4px; }',
   'label { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }',
   'select, input, textarea { width: 100%; height: 100%; font: inherit; color: inherit; border: none; background: transparent; }',
   'video { width: 100%; height: 100%; object-fit: cover; }',
+  // M20：表格基础排版与编辑器的画布预览一致；th/td 必须继承 text-align，
+  // 否则浏览器默认（th 居中、td 继承 table）会把「水平对齐」吃掉。
+  '.el__table { width: 100%; border-collapse: collapse; }',
+  '.el__table th, .el__table td { padding: 4px 8px; border: 1px solid #e2e8f0; text-align: inherit; }',
 ].join('\n')
 
 /** 该断点下页面几何与有效节点（页面宽度换成断点自己的设计宽度） */

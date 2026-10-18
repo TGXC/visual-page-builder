@@ -9,7 +9,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Box, NodeId, SceneNode } from '@/core/schema/types'
 import type { Handle, SnapGuide } from '@/core/geometry'
 import { SNAP_THRESHOLD, applySnap, rectOf, rectsIntersect, resizeBox } from '@/core/geometry'
-import { componentLabel, getComponent } from '@/core/components'
+import { componentLabel, editKeyOf, getComponent } from '@/core/components'
 import { dropParentAt } from '@/core/dnd'
 import { instanceIdOf } from '@/core/symbols'
 import type { SpacingHint } from '@/core/spacing'
@@ -24,6 +24,8 @@ const emit = defineEmits<{ (event: 'context-menu', payload: { x: number; y: numb
 const store = useEditorStore()
 const pageRef = ref<HTMLElement | null>(null)
 const editingId = ref<NodeId | null>(null)
+/** 本次双击编辑写回哪个 props 字段（默认 text，输入类写 placeholder） */
+const editingKey = ref('text')
 const editingValue = ref('')
 const editingSub = ref('')
 const marquee = ref<Box | null>(null)
@@ -559,7 +561,10 @@ function startEdit(id: NodeId): void {
   const node = view.value[id]
   if (!node) return
   editingId.value = id
-  editingValue.value = String(node.props.text ?? '')
+  // M20：不再只认 text —— 输入框/文本域/数字框的可见文字是 placeholder，
+  // 双击改 text 会「能输入但画布上看不见」，所以由描述符的 editKey 决定写哪个字段。
+  editingKey.value = editKeyOf(node.type)
+  editingValue.value = String(node.props[editingKey.value] ?? '')
   editingSub.value = String(node.props.sub ?? '')
 }
 
@@ -569,7 +574,7 @@ function commitTextEdit(): void {
   const node = view.value[id]
   editingId.value = null
   if (!node) return
-  const next: Record<string, unknown> = { ...node.props, text: editingValue.value }
+  const next: Record<string, unknown> = { ...node.props, [editingKey.value]: editingValue.value }
   if (node.type === 'header' || node.type === 'card') next.sub = editingSub.value
   store.updateNode(id, { props: next }, `text:${id}`)
 }
@@ -699,13 +704,14 @@ onBeforeUnmount(() => {
             v-model="editingValue"
             class="canvas-text-editor__input"
             data-role="text-editor"
+            :placeholder="editingKey === 'placeholder' ? '占位文字' : '文字内容'"
             autofocus
             @keydown.enter.prevent="commitTextEdit"
             @keydown.esc="editingId = null"
             @blur="commitTextEdit"
           >
           <input
-            v-if="editingId && (store.nodes[editingId].type === 'header' || store.nodes[editingId].type === 'card')"
+            v-if="editingId && (view[editingId]?.type === 'header' || view[editingId]?.type === 'card')"
             v-model="editingSub"
             class="canvas-text-editor__input canvas-text-editor__input--sub"
             data-role="sub-editor"

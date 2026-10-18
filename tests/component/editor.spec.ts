@@ -147,7 +147,7 @@ describe('M1 编辑器：画布交互与面板', () => {
   })
 
   it('状态栏显示当前界面版本号（对不上就是浏览器缓存了旧文件）', async () => {
-    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M19')
+    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M20')
   })
 
   it('拖动元素改位置，Ctrl+Z 撤销回原位', async () => {
@@ -710,6 +710,63 @@ describe('M1 编辑器：画布交互与面板', () => {
     await flush()
     await wrapper.find('[data-role="context-menu"] [data-action="paste"]').trigger('click')
     expect(Object.keys(store.nodes)).toHaveLength(3)
+  })
+
+  it('M20：双击布局组件也能输入文字，画布用角标显示（默认文字不显示）', async () => {
+    const id = store.insertComponent('section', { position: { x: 40, y: 40 } })
+    store.setSize(id, 320, 180, 'init')
+    await flush()
+    // 默认文字（容器默认名）不显示角标，避免每个容器顶着「容器」字样
+    expect(nodeEl(wrapper, id).querySelector('.el__caption')).toBeNull()
+
+    nodeEl(wrapper, id).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await flush()
+    const editor = wrapper.find('[data-role="text-editor"]')
+    expect(editor.exists()).toBe(true)
+    expect((editor.element as HTMLInputElement).placeholder).toBe('文字内容')
+    await editor.setValue('营销活动区')
+    await editor.trigger('keydown', { key: 'Enter' })
+    await flush()
+
+    expect(store.nodes[id].props.text).toBe('营销活动区')
+    const caption = nodeEl(wrapper, id).querySelector('.el__caption')
+    expect(caption?.textContent).toBe('营销活动区')
+    expect(store.generatedHtml).toContain('营销活动区')
+  })
+
+  it('M20：双击输入框写的是占位文字（画布上马上能看到）', async () => {
+    const id = store.insertComponent('input', { position: { x: 40, y: 40 } })
+    store.setSize(id, 220, 40, 'init')
+    await flush()
+
+    nodeEl(wrapper, id).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await flush()
+    const editor = wrapper.find('[data-role="text-editor"]')
+    expect((editor.element as HTMLInputElement).placeholder).toBe('占位文字')
+    await editor.setValue('请输入手机号')
+    await editor.trigger('keydown', { key: 'Enter' })
+    await flush()
+
+    expect(store.nodes[id].props.placeholder).toBe('请输入手机号')
+    // 改的是 placeholder，没去动看不见的 text
+    expect(store.nodes[id].props.text).not.toBe('请输入手机号')
+    // 画布上立刻能看到（输入类在画布里渲染成提示文字）
+    expect(nodeEl(wrapper, id).querySelector('.canvas-el__content')?.textContent).toContain('请输入手机号')
+    expect(store.generatedHtml).toContain('placeholder="请输入手机号"')
+  })
+
+  it('M20：表格「水平对齐」真的生效，且不会被 th/td 的默认对齐全吃掉', async () => {
+    const id = store.insertComponent('table', { position: { x: 10, y: 10 } })
+    store.updateNode(id, { style: { ...store.nodes[id].style, align: 'center' } })
+    await flush()
+
+    // 画布元素上真的带上了 text-align
+    expect(nodeEl(wrapper, id).style.textAlign).toBe('center')
+    // 生成的节点 CSS 也带上了
+    expect(store.generatedCss).toContain('text-align:center')
+    // 基础样式里 th/td 必须是 inherit，否则会把上面这条盖掉
+    expect(store.generatedHtml).toContain('text-align: inherit')
+    expect(store.generatedHtml).not.toContain('border: 1px solid var(--studio-border')
   })
 
   it('自动保存：改动后 400ms 写入 localStorage', async () => {

@@ -668,6 +668,23 @@
 
 **代价**：每个拖拽/缩放手势多存一份 `Map`（节点数级，可忽略）；「绝对盒」与「相对盒」两套坐标同时存在于 `Interaction` 上，新写交互逻辑时必须先想清楚当前这段数在哪个坐标系（和 D75 的 `localPoint()` / `dragPoint()` 同类问题，现在共有四种坐标语义）；只有出现过断点覆盖的元素才会触发旧 bug，没有覆盖时基准几何 = 有效几何，这也解释了前几轮为什么难复现。
 
+## D82：双击编辑对所有对外组件开放，写哪个字段由描述符的 `editKey` 决定，看不见文字时用 `.el__caption` 角标显示
+
+**决定**：`ComponentDescriptor` 增加两个可选字段：`editKey`（双击编辑写 `props` 的哪个字段，缺省 `'text'`）与 `caption`（内容渲染里没有文字时，是否把用户自定义的 `text` 以 `.el__caption` 角标显示）。`spec()` 里 `editable` 对四个内部类型（root/page/instance/symbol）之外的组件一律为 `true`，`editKey` 缺省 `'text'`。输入类（`input` / `textarea` / `number`）的 `editKey` 是 `'placeholder'`——它们在画布上显示的本来就是提示文字。`caption: true` 加在内容里没有文字的 15 个组件上（frame / group / section / container / columns / divider / spacer / rect / circle / form / date / file / slider / rating / progress）；`captionOf()` 只在「用户改过 text」时输出角标（`text` 为空或等于默认 props 时不显示），且由 `renderContent()` / `renderCanvasContent()` 统一加前缀，画布与导出共用同一条规则。`startEdit()` 按 `editKeyOf(type)` 读/写 `props[editKey]`，行内编辑框的 `placeholder` 也跟着变（`文字内容` / `占位文字`）。
+
+**理由**：用户 m12600 反馈「有部分组件无法输入文本，如所有布局组件，表单容器，输入框、文本域、进度条等」。根因有两层：`ElementView` 的 `@dblclick` 一直有 `if (!editable.value) return`，而只有 text/heading/button/link/badge/nav/header/card 九类标了 `editable: true`，其余组件双击直接没反应；输入类即使标了 `editable`，画布上显示的是 `placeholder` 而不是 `text`，原来的 `startEdit()` 只改 `text`——等于「能弹出输入框，但输完画布上看不见」。直接在样式层做「编辑时切开一个 input」不现实：这些组件的内容是 `v-html` 出来的语义 HTML（table/select/svg…），DOM 不可控，而统一写 `text` + 角标能用一条规则覆盖全部组件，且不改变既有 `toHtml()` 的输出（隐藏的 `text` 本来就会被忽略）。
+
+**代价**：`editable` 语义从「描述符能力」退化成「除内部类型外全开放」，自定义组件作者不能再单独关掉某个组件的中文编辑（`editKey` 可以引导它写到别的字段）；角标是「附加在内容之上」的，不适合需要精确预览的组件——想彻底自定义的组件应显式设 `caption: false` 并自己渲染文字；角标与真实内容的相对位置（顶部 & 半透明）与设计稿可能不一致，多行 `text` 会被 `overflow: hidden` 裁掉。
+
+## D83：表格的 `th/td` 必须 `text-align: inherit`，否则属性面板的「水平对齐」永远被浏览器默认值盖掉
+
+**决定**：编辑器 `src/styles/editor.css` 里 `.canvas-el__content .el__table th, td` 的 `text-align: left` 改成 `inherit`；`src/core/codegen/index.ts` 的 `BASE_CSS` 补上表格基础规则（`.el__table { width:100%; border-collapse:collapse }`、`th/td { padding:4px 8px; border:1px solid #e2e8f0; text-align:inherit }`），与画布预览对齐。
+
+**理由**：用户 m12600 反馈「表格的水平对齐基本毫无作用」。`declarations()` 会把 `style.align` 输出成节点类上的 `text-align:center/right`（左对齐不输出，靠继承），但编辑器 CSS 里一条更高优先级的 `.canvas-el__content .el__table th { text-align: left }` 把所有单元格钉死在左对齐——`th` 的浏览器默认还是 `center`，所以既有「点居中没反应」也有「表头本来居中、点左对齐也没反应」两种错觉。属于「样式层把数据层输出盖掉」，和 M16 的 `transform-origin` 同类：用户看到的错位/失效其实是 CSS 默认值/覆盖，不是交互逻辑。
+
+**代价**：`th` 不再有「表头自动居中」的默认行为，需要用户自己选居中（这是有意的——「所见即所得」优先于浏览器默认）；`inherit` 依赖祖先链上真的有人设置 `text-align`，如果以后给 `.el__table` 自身加了对齐规则，单元格会一起变；导出侧新增两条基础规则会让 M5 的结构快照变化（已同步更新快照）。
+
+
 
 
 

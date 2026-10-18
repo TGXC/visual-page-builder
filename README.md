@@ -302,6 +302,17 @@ M18 交付后用户回「问题依旧存在」，并给了新例子：**「当�
 
 M19 没有新依赖；改动 `src/components/canvas/CanvasStage.vue`（`Interaction.rels`、`beginMove()` / 缩放起始盒改读 `store.boxes`、`snapTargets()` 用绝对盒、移动与缩放写回相对坐标、`locked` 判断改看当前断点节点）、`src/config/build.ts`（角标 `M19`）、`tests/component/helpers.ts`（`down()` 支持传 `PointerEventInit`，用来测 Alt 深选）；`tests/component/editor.spec.ts` 新增 3 例：「mobile 断点下拖动从屏幕位置继续走、尺寸不被基准断点顶掉」「mobile 断点下缩放沿屏幕上的边缘走」「容器里的元素按绝对位置参与磁吸」，并把角标断言改到 `M19`，全量 52 文件 / 601 例。
 
+## M20 已经做了什么：双击编辑对所有组件开放 / 表格水平对齐生效（M19 之后用户第十二轮实测）
+
+M19 交付后用户回了两条：**「有部分组件无法输入文本，如所有布局组件，表单容器，输入框，文本域，进度条等」** 和 **「表格的水平对齐基本毫无作用」**。两条都不是「功能没做」，而是「功能在，但被某处挡住/盖掉」。
+
+| # | 反馈 | 根因 / 修法 |
+| --- | --- | --- |
+| 1 | 布局组件 / 表单容器 / 输入框 / 文本域 / 进度条……双击没反应，或输完看不见 | 画布行内编辑的入口一直有 `if (!editable) return`，但只有 9 类组件标了 `editable: true`；输入类虽然能弹出输入框，改的却是不可见的 `text`（画布上显示的是 `placeholder`）。改成：除 root/page/instance/symbol 四个内部类型外**全部可双击编辑**；写哪个字段由描述符新增的 `editKey` 决定（输入类写 `placeholder`，其余写 `text`）；内容里本来没有文字的 15 个组件在用户改过 `text` 后显示 `.el__caption` 半透明角标，画布与导出一致（D82） |
+| 2 | 表格点「居中/右对齐」毫无反应（表头更是怎么点都不动） | 编辑器 CSS 里 `.canvas-el__content .el__table th/td { text-align: left }` 的优先级高于节点上的 `text-align`，把属性面板的输出整个盖掉；`th` 的浏览器默认又是 `center`，所以「点居中没反应」和「表头从来居左」两种错觉同时存在。改成 `text-align: inherit`，并在导出侧 `BASE_CSS` 补上同一套表格基础规则（D83） |
+
+M20 没有新依赖；改动 `src/core/components/index.ts`（`editKey` / `caption` 描述符字段、`editKeyOf()`、`captionOf()`、40 个描述符里的 15 个 `caption: true` 与 3 个输入类的 `editKey: 'placeholder'`）、`src/components/canvas/CanvasStage.vue`（`editingKey` 状态、`startEdit()` / `commitTextEdit()` 按 `editKeyOf()` 读写、行内输入框的 `placeholder` 跟着变）、`src/styles/editor.css`（表格 `th/td` 继承对齐 + `.el__caption` 样式）、`src/core/codegen/index.ts`（`BASE_CSS` 增加 `.el__caption` 与表格规则）、`src/config/build.ts`（角标 `M20`）；`tests/component/editor.spec.ts` 新增 3 例（双击布局组件写 `text` 并显示角标且默认文字不显示、双击输入框写 `placeholder` 且画布立刻可见、表格居中时画布与导出 CSS 都真的居中且没被 `th/td` 盖掉），`tests/unit/components.spec.ts` / `componentsRender.spec.ts` 跟着更新 `editable` 语义断言，M5 的导出结构快照同步更新，全量 52 文件 / 604 例。
+
 ## M0 已经做了什么
 
 1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
@@ -385,27 +396,27 @@ tests/
 └── smoke/                   # 导出冒烟：真实写盘 studio.html / site.zip，用外部工具校验（npm run test:smoke）
 docs/
 ├── 功能文档-v2-可视化页面搭建器.md
-├── decisions.md             # 架构决策记录（ADR，D1–D81）
+├── decisions.md             # 架构决策记录（ADR，D1–D83）
 └── archive/                 # 上一代表单搭建器的 PLAN / 决策 / 蓝图
 ```
 
-## 质量数据（M19）
+## 质量数据（M20）
 
 | 项目 | 数值 |
 | --- | --- |
-| 测试 | 52 个文件 / **601 个用例全绿**（含 2 个导出结构快照） |
-| 覆盖率 | 语句 97.20% · 分支 90.66% · 函数 97.38% · 行 99.35%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 与 Vue 组件由单测与组件测试覆盖但不在 v8 统计里） |
-| 性能（布局，E7） | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **5.23ms**（最快 3.92ms；阈值 8ms；同机多轮 3.5–6.5ms，本轮与 dev server 同时跑） |
-| 性能（导出，E7） | 1000 节点真实导出链路（CSS 243848 B + HTML 305481 B + 整站 + ZIP 375581 B）中位数 **134.01ms**（最快 120.53ms；阈值 1000ms），分阶段 CSS 42.52 / HTML 45.26 / 整站 42.12 / ZIP 8.09ms（同机多轮 85–160ms） |
-| 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、mediaQueries 2、zip 6905 B，`Expand-Archive` 解压通过 |
-| 构建 | 99 modules；JS 285.36 kB（**gzip 98.62 kB**）；CSS 29.86 kB（gzip 5.77 kB） |
+| 测试 | 52 个文件 / **604 个用例全绿**（含 2 个导出结构快照） |
+| 覆盖率 | 语句 97.21% · 分支 90.67% · 函数 97.39% · 行 99.35%（阈值 90；统计范围是 `src/core/**`，AI 编排层 `src/ai` 与 Vue 组件由单测与组件测试覆盖但不在 v8 统计里） |
+| 性能（布局，E7） | `npm run test:perf`：1000 节点整树 `computeLayout` 中位数 **4.06ms**（最快 3.03ms；阈值 8ms；同机多轮 3.5–6.5ms，本轮与 dev server 同时跑） |
+| 性能（导出，E7） | 1000 节点真实导出链路（CSS 244068 B + HTML 305701 B + 整站 + ZIP 376021 B）中位数 **108.99ms**（最快 79.01ms；阈值 1000ms），分阶段 CSS 29.71 / HTML 35.60 / 整站 32.48 / ZIP 5.13ms（同机多轮 85–160ms） |
+| 导出冒烟 | `npm run test:smoke`：落地页导出 `inlineStyles 0`、mediaQueries 2、zip 7345 B，`Expand-Archive` 解压通过 |
+| 构建 | 99 modules；JS 286.25 kB（**gzip 98.86 kB**）；CSS 29.94 kB（gzip 5.79 kB） |
 | 生产预览 | `npm run build` 后 `npm run preview -- --port 4173`：`/` 200、`/assets/index-*.js` 200、`/assets/index-*.css` 200 |
 | 类型 | `vue-tsc -b` 严格模式 0 错误；ESLint 0 error 0 warning |
 | CI | `.github/workflows/ci.yml`：lint → test → coverage → build → perf → smoke → 上传 dist |
 
-M9 让 CSS 从 19.87 kB 涨到 22.06 kB（gzip +0.34 kB）、JS 从 275.21 kB 涨到 279.10 kB（gzip +1.16 kB）：网格层、面包屑、包围框、页签与删除保护；M10 又让 CSS 涨到 22.45 kB（+0.39 kB / gzip +0.05 kB）、JS 涨到 279.75 kB（+0.65 kB / gzip +0.18 kB）：中文类型名与两个删除入口；M11 只涨 JS 到 280.48 kB（+0.73 kB / gzip +0.29 kB）、CSS 不变：一个 `computed` 加几处条件渲染；M12 再涨 JS 到 281.01 kB（+0.53 kB / gzip +0.17 kB）、CSS 不变：根底色搬到画布容器 + 删除项 title；M13 让 CSS 涨到 25.91 kB（+3.46 kB / gzip +0.67 kB）、JS 涨到 282.38 kB（+1.37 kB / gzip +0.66 kB）：组件面板折叠、共享输入框样式、以及一整套底色/阴影/分隔线的层次感变量（CSS 是这轮的大头，JS 只多了 `tokenLabel()` 的映射表）；M14 让 CSS 涨到 29.20 kB（+3.29 kB / gzip +0.54 kB）、JS 涨到 284.23 kB（+1.85 kB / gzip +0.58 kB）：画布内容盒的居中/间距规则、此前完全没有样式的 `canvas-el__*` 内容类与 `.el__list /.el__table /.el__tabs` 的画布排版、尺寸预设与缩放下拉（CSS 仍是大头，JS 只多了 `clearPage` / `setViewportHeight` / 预设映射）；M15 让 CSS 再涨到 29.57 kB（+0.37 kB / gzip +0.08 kB）、JS 涨到 284.33 kB（+0.10 kB / gzip +0.02 kB）：把下拉换成数字输入框（`%` 后缀 + 隐藏 spinner）与一个 `Number.isFinite` 守卫；M16 让 CSS 涨到 29.60 kB（+0.03 kB / gzip +0.01 kB）、JS 涨到 284.35 kB（+0.02 kB / gzip +0.01 kB）：只是一条 `transform-origin: 0 0` 与一行注释；M17 让 CSS 涨到 29.73 kB（+0.13 kB / gzip +0.01 kB）、JS 涨到 284.51 kB（+0.16 kB / gzip +0.08 kB）：两条文本内容盒规则 + `Interaction.scale` 字段与 `dragPoint()` 换算；M18 让 CSS 涨到 29.86 kB（+0.13 kB / gzip +0.03 kB）、JS 涨到 285.13 kB（+0.62 kB / gzip +0.30 kB）：原生拖拽拦截、`onDrop` 类型白名单与去重、磁吸阈值换算、状态栏版本角标；M19 让 JS 涨到 285.36 kB（+0.23 kB / gzip +0.09 kB）、CSS 不变（29.86 kB）：只把拖拽起始盒改从 `store.boxes`（绝对几何）取、多存一份相对盒 `rels`。十一轮都没有引入任何新依赖。
+M9 让 CSS 从 19.87 kB 涨到 22.06 kB（gzip +0.34 kB）、JS 从 275.21 kB 涨到 279.10 kB（gzip +1.16 kB）：网格层、面包屑、包围框、页签与删除保护；M10 又让 CSS 涨到 22.45 kB（+0.39 kB / gzip +0.05 kB）、JS 涨到 279.75 kB（+0.65 kB / gzip +0.18 kB）：中文类型名与两个删除入口；M11 只涨 JS 到 280.48 kB（+0.73 kB / gzip +0.29 kB）、CSS 不变：一个 `computed` 加几处条件渲染；M12 再涨 JS 到 281.01 kB（+0.53 kB / gzip +0.17 kB）、CSS 不变：根底色搬到画布容器 + 删除项 title；M13 让 CSS 涨到 25.91 kB（+3.46 kB / gzip +0.67 kB）、JS 涨到 282.38 kB（+1.37 kB / gzip +0.66 kB）：组件面板折叠、共享输入框样式、以及一整套底色/阴影/分隔线的层次感变量（CSS 是这轮的大头，JS 只多了 `tokenLabel()` 的映射表）；M14 让 CSS 涨到 29.20 kB（+3.29 kB / gzip +0.54 kB）、JS 涨到 284.23 kB（+1.85 kB / gzip +0.58 kB）：画布内容盒的居中/间距规则、此前完全没有样式的 `canvas-el__*` 内容类与 `.el__list /.el__table /.el__tabs` 的画布排版、尺寸预设与缩放下拉（CSS 仍是大头，JS 只多了 `clearPage` / `setViewportHeight` / 预设映射）；M15 让 CSS 再涨到 29.57 kB（+0.37 kB / gzip +0.08 kB）、JS 涨到 284.33 kB（+0.10 kB / gzip +0.02 kB）：把下拉换成数字输入框（`%` 后缀 + 隐藏 spinner）与一个 `Number.isFinite` 守卫；M16 让 CSS 涨到 29.60 kB（+0.03 kB / gzip +0.01 kB）、JS 涨到 284.35 kB（+0.02 kB / gzip +0.01 kB）：只是一条 `transform-origin: 0 0` 与一行注释；M17 让 CSS 涨到 29.73 kB（+0.13 kB / gzip +0.01 kB）、JS 涨到 284.51 kB（+0.16 kB / gzip +0.08 kB）：两条文本内容盒规则 + `Interaction.scale` 字段与 `dragPoint()` 换算；M18 让 CSS 涨到 29.86 kB（+0.13 kB / gzip +0.03 kB）、JS 涨到 285.13 kB（+0.62 kB / gzip +0.30 kB）：原生拖拽拦截、`onDrop` 类型白名单与去重、磁吸阈值换算、状态栏版本角标；M19 让 JS 涨到 285.36 kB（+0.23 kB / gzip +0.09 kB）、CSS 不变（29.86 kB）：只把拖拽起始盒改从 `store.boxes`（绝对几何）取、多存一份相对盒 `rels`；M20 让 CSS 涨到 29.94 kB（+0.08 kB / gzip +0.02 kB）、JS 涨到 286.25 kB（+0.89 kB / gzip +0.24 kB）：`editKey` / `caption` 两个描述符字段与 `captionOf()` 的字符串拼接、行内编辑框按字段读写，加两条表格/角标 CSS。十二轮都没有引入任何新依赖。
 
-性能这一轮没有退化：新增的只是 CSS 渐变与两个按钮，不参与布局计算（D57）；导出链路的瓶颈（`childrenOf()` 全表扫描）在 M8 已换成 `childrenIndex()`，仍然远低于 1s 阈值。M13 只改 CSS、样式变量与一个纯函数 `tokenLabel()`，布局与导出耗时都落在 M12 的抖动区间里。M14 同理：改的是画布 CSS 与顶栏按钮，`clearPage()` 只在点击时跑一次 `removePatches()`，`setViewportHeight()` 与既有的 `setViewportWidth()` 同路径且不进历史栈，两者都不参与 1000 节点布局/导出基准的计算。M17 只动了拖拽时的坐标换算（每帧多一次除法、少一次 `getBoundingClientRect()`，反而更轻）与两条文本 CSS 规则，同样不参与布局/导出基准。M18 加的是事件层拦截（`preventDefault` / `dragstart` 拦截 / `onDrop` 早退）与状态栏一个常量，都不在布局/导出热路径上；这一轮导出中位数偏高（149ms）是机器负载抖动，同机多轮区间仍是 85–160ms。M19 只改拖拽起点取哪份盒、多存一份相对盒，每帧 `setBox()` 的写入量不变，同样不参与布局/导出基准，数字也回到 85–160ms 区间内。
+性能这一轮没有退化：新增的只是 CSS 渐变与两个按钮，不参与布局计算（D57）；导出链路的瓶颈（`childrenOf()` 全表扫描）在 M8 已换成 `childrenIndex()`，仍然远低于 1s 阈值。M13 只改 CSS、样式变量与一个纯函数 `tokenLabel()`，布局与导出耗时都落在 M12 的抖动区间里。M14 同理：改的是画布 CSS 与顶栏按钮，`clearPage()` 只在点击时跑一次 `removePatches()`，`setViewportHeight()` 与既有的 `setViewportWidth()` 同路径且不进历史栈，两者都不参与 1000 节点布局/导出基准的计算。M17 只动了拖拽时的坐标换算（每帧多一次除法、少一次 `getBoundingClientRect()`，反而更轻）与两条文本 CSS 规则，同样不参与布局/导出基准。M18 加的是事件层拦截（`preventDefault` / `dragstart` 拦截 / `onDrop` 早退）与状态栏一个常量，都不在布局/导出热路径上；这一轮导出中位数偏高（149ms）是机器负载抖动，同机多轮区间仍是 85–160ms。M19 只改拖拽起点取哪份盒、多存一份相对盒，每帧 `setBox()` 的写入量不变，同样不参与布局/导出基准，数字也回到 85–160ms 区间内。M20 只改行内编辑写哪个字段、加一个字符串前缀函数与两条 CSS 规则，都不在布局/导出热路径上；导出链路里唯一的变化是 `BASE_CSS` 多了三条表格/角标规则（HTML 每个页面多 ~120 B），实测中位数 108.99ms 落在历史区间内。
 
 
 ## 架构决策
@@ -436,7 +447,7 @@ M8 新增 D51–D56：主题 token 用 `$name` 引用、导出成 CSS 变量且�
 文本/颜色/PNG/base64 这些小工具一律自写不引依赖、性能瓶颈是「每个节点扫全表」而不是布局（`childrenIndex()` + 懒算 `children` + 复用激活页 HTML 把 1000 节点导出从 898.66ms 压到 73–80ms）、
 版本历史与分享链接只落本机/地址栏（回滚与载入都走文档级历史条目因此可撤销）、分享片段要能吃完整地址（`indexOf('#doc=')`）、
 perf/smoke 脚本用「存在性判断垫片」让沙箱与 CI 跑同一条命令。
-M9–M19（计划外体验修订）新增 D57–D81：网格画在缩放层外（两层 8/64px）、删除保护放 `removeSelection()` 入口而不是 `core/ops`、
+M9–M20（计划外体验修订）新增 D57–D83：网格画在缩放层外（两层 8/64px）、删除保护放 `removeSelection()` 入口而不是 `core/ops`、
 层级点选 + 面包屑 + Esc 退层、页面级操作全部进撤销栈（文档级条目）、右栏改页签且面板 `v-show` 常驻、
 白屏回归用组件测试锁死、类型名统一走 `componentLabel()`、删除入口显性化到五个但共用一条路径、
 新建页面后不再自动选中根容器（`canRemoveSelection`）、根 frame 底色画在 `.canvas-page` 上且右键根不算选中、
@@ -453,7 +464,9 @@ M9–M19（计划外体验修订）新增 D57–D81：网格画在缩放层外�
 画布内关掉浏览器原生拖拽与文字选区（否则原生 drag 会掐断 pointer 拖拽，drop 还会被当成插组件）、
 拖入只接受注册过的组件类型并对同手势重复落点去重（面板再挡「拖后补发的 click」）、
 磁吸阈值按缩放换算成固定屏幕像素、状态栏显示界面版本号用于分辨「没生效」还是「缓存」、
-拖拽/缩放的起始盒一律取当前断点的绝对盒（`store.boxes`），写回 `setBox()` 时再换回相对父容器内容框的 `rels`。
+拖拽/缩放的起始盒一律取当前断点的绝对盒（`store.boxes`），写回 `setBox()` 时再换回相对父容器内容框的 `rels`、
+双击编辑除内部类型外全开放（写哪个字段由描述符 `editKey` 定，看不见文字时用 `.el__caption` 角标显示）、
+表格 `th/td` 必须 `text-align: inherit`，否则属性面板的「水平对齐」会被默认值盖掉。
 
 ## 本机开发环境的四个坑（Windows + 受限沙箱）
 
@@ -466,7 +479,13 @@ M9–M19（计划外体验修订）新增 D57–D81：网格画在缩放层外�
 
 ## 已知缺口 / 未做
 
-- **PLAN.md 的 M0–M8 全部完成，另有十一轮计划外的体验修订（M9 / M10 / M11 / M12 / M13 / M14 / M15 / M16 / M17 / M18 / M19）**：M8 交付了主题 token、从模板新建页面、版本历史、分享链接、可访问性补充规则与键盘选择、性能基准（布局 + 导出）与 CI；M9 是用户实测后补的画布网格、删除保护、层级选择与右栏排版；M10 是用户第二轮反馈后的类型名中文化与删除入口显性化；M11 是第三轮反馈后定位到的删除故障真因——新建模板页后自动选中了页面根容器；M12 是第四轮反馈后修掉的「模板页网格被根 frame 底色盖住」与「右键空白选中根导致删除项被置灰换文案」；M13 是第五轮反馈后的界面修订——组件面板单列 + 分类折叠、主题变量中文名、输入框浅灰边框、三栏配色/阴影层次；M14 是第六轮反馈后的尺寸与间距修订——视口尺寸显示成「宽 × 高」且高度可改、缩放下拉显示当前档位、一键清空当前页面、组件内文字与边框间距修齐；M15 是第七轮反馈后的缩放修订——百分比从固定档位下拉改成可直接输入具体数值；M16 是第八轮反馈后的缩放原点修复——`transform-origin: 0 0`，缩放下组件/占位文字/多选框不再相对画布偏移；M17 是第九轮反馈后的拖拽与文本修订——拖拽几何改为按下时快照原点与缩放、文本/标题内容盒纵向居中；M18 是第十轮反馈后的手势修订——关掉画布里的原生拖拽与文字选区（那是「拖动时多出一个组件」和偶发漂移的共同根因）、拖入走组件类型白名单、磁吸阈值按缩放换算、状态栏加版本角标；M19 是第十一轮反馈后的拖拽锚点修复——起始盒改取当前断点的绝对几何（`store.boxes`），写回 `setBox()` 时再换回相对父容器内容框的 `rels`（见「M9 … M19 已经做了什么」）。下面按里程碑列出仍然存在的取舍与缺口（都是「知道但没做」，不是没发现）。
+- **PLAN.md 的 M0–M8 全部完成，另有十二轮计划外的体验修订（M9 / M10 / M11 / M12 / M13 / M14 / M15 / M16 / M17 / M18 / M19 / M20）**：M8 交付了主题 token、从模板新建页面、版本历史、分享链接、可访问性补充规则与键盘选择、性能基准（布局 + 导出）与 CI；M9 是用户实测后补的画布网格、删除保护、层级选择与右栏排版；M10 是用户第二轮反馈后的类型名中文化与删除入口显性化；M11 是第三轮反馈后定位到的删除故障真因——新建模板页后自动选中了页面根容器；M12 是第四轮反馈后修掉的「模板页网格被根 frame 底色盖住」与「右键空白选中根导致删除项被置灰换文案」；M13 是第五轮反馈后的界面修订——组件面板单列 + 分类折叠、主题变量中文名、输入框浅灰边框、三栏配色/阴影层次；M14 是第六轮反馈后的尺寸与间距修订——视口尺寸显示成「宽 × 高」且高度可改、缩放下拉显示当前档位、一键清空当前页面、组件内文字与边框间距修齐；M15 是第七轮反馈后的缩放修订——百分比从固定档位下拉改成可直接输入具体数值；M16 是第八轮反馈后的缩放原点修复——`transform-origin: 0 0`，缩放下组件/占位文字/多选框不再相对画布偏移；M17 是第九轮反馈后的拖拽与文本修订——拖拽几何改为按下时快照原点与缩放、文本/标题内容盒纵向居中；M18 是第十轮反馈后的手势修订——关掉画布里的原生拖拽与文字选区（那是「拖动时多出一个组件」和偶发漂移的共同根因）、拖入走组件类型白名单、磁吸阈值按缩放换算、状态栏加版本角标；M19 是第十一轮反馈后的拖拽锚点修复——起始盒改取当前断点的绝对几何（`store.boxes`），写回 `setBox()` 时再换回相对父容器内容框的 `rels`；M20 是第十二轮反馈后的编辑与对齐修复——双击编辑对所有组件开放（写哪个字段由 `editKey` 定、看不见文字时用 `.el__caption` 角标显示）、表格 `th/td` 改成继承 `text-align`（见「M9 … M20 已经做了什么」）。下面按里程碑列出仍然存在的取舍与缺口（都是「知道但没做」，不是没发现）。
+- **M20 的取舍与已知缺口**：
+  - **`editable` 语义被放宽成「除内部类型外全开放」**：自定义组件作者不能再单独关掉某个组件的中文编辑（`editKey` 只能引导写到别的字段）；四个内部类型 `root / page / instance / symbol` 仍然不可双击。
+  - **角标只是兜底可视化**：`.el__caption` 是「内容之上」附加的一行半透明小字，多行 `text` 会被 `overflow: hidden` 裁掉，也不适合需要精确预览的组件——这类组件应显式设 `caption: false` 自己渲染文字。
+  - **`text` 与 `placeholder` 仍是两个字段**：输入类双击写的是 `placeholder`，想改「语义文案」还得去属性面板改 `text`（很多控件的 `text` 是 label 语义，导出时不显示）。
+  - **表格对齐靠继承链**：`th/td` 是 `text-align: inherit`，如果以后给 `.el__table` 或 `tr` 加了对齐规则，单元格会跟着变；`th` 不再有浏览器默认的「表头居中」，用户要自己选。
+  - **画布与导出的盒模型仍是两套**：编辑器用 `.canvas-el__content`（flex 内容盒），导出用 `.el`（绝对定位盒），表格/角标两边各维护一份规则，改样式时要同时改 `editor.css` 与 `BASE_CSS`（M5 结构快照会因此更新）。
 - **M19 的取舍与已知缺口**：
   - **只有「出现过断点覆盖」的元素才会跳**：没有覆盖时基准几何 = 有效几何，旧代码看不出问题——这解释了前十轮为什么一直没复现到，也意味着这类 bug 的复现条件是「先在新断点上动过元素」。
   - **四种坐标语义并存**：`localPoint()`（指针现在在画布的哪里）、`dragPoint()`（相对按下点移动了多少）、`boxes`（页面绝对）、`rels`（相对父容器内容框）——新写交互逻辑挑错一个就会引入同类漂移；目前靠注释而不是类型/命名来区分。

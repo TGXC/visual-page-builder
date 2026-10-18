@@ -99,7 +99,10 @@ describe('组件描述符注册表', () => {
     for (const type of ['text', 'button', 'header', 'card', 'link', 'badge']) {
       expect(getComponent(type)?.editable).toBe(true)
     }
-    expect(getComponent('image')?.editable).toBe(false)
+    // M20：双击改文字对所有对外组件开放（内容里没有 text 的用 caption 角标显示）
+    expect(getComponent('image')?.editable).toBe(true)
+    expect(getComponent('frame')?.editable).toBe(true)
+    expect(getComponent('instance')?.editable).toBe(false)
   })
 
   it('十五类 v1 组件的默认值与迁移表保持一致（防默认值漂移）', () => {

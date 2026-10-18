@@ -86,7 +86,8 @@ describe('M4 组件渲染：全部描述符', () => {
     expect(isContainerType('rect')).toBe(false)
     expect(isContainerType('no-such-type')).toBe(false)
     expect(isEditableType('text')).toBe(true)
-    expect(isEditableType('rect')).toBe(false)
+    // M20：连纯形状/容器也能双击输入文字（用 caption 角标显示）
+    expect(isEditableType('rect')).toBe(true)
     expect(isEditableType('no-such-type')).toBe(false)
   })
 })

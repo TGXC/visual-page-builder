@@ -899,7 +899,16 @@ textarea.editor-input {
 .canvas-el__content .el__table td {
   padding: 4px 8px;
   border: 1px solid var(--studio-border, #e2e8f0);
-  text-align: left;
+  /* M20：这里原来写死 left，把元素上的 text-align（属性面板「水平对齐」）
+     整个盖掉了，所以对齐怎么点都没反应。改成继承，让对齐真的生效。 */
+  text-align: inherit;
+}
+
+/* M20：内容里没有 text 的组件（容器/进度条/日期……）用角标显示用户输入的文字 */
+.canvas-el__content .el__caption {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.6;
 }
 
 .canvas-el__content .el__tabs {
