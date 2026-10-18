@@ -5,7 +5,9 @@
 
 技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
 
-> **当前进度：M0（地基 + WebBuilder v1 迁移）、M1（WebBuilder 18 项能力复刻）、M2（布局引擎）、M3（响应式断点）、M4（组件体系）、M5（代码生成）、M6（AI 助手：Mock provider + 规则检查 + 只产出补丁）、M7（AI 进阶：文案/素材候选 + 受限 DSL 生成组件 + 成本与降级）、M8（收尾：主题 token + 版本历史 + 分享发布 + 可访问性 + 性能预算 + CI）已完成 —— PLAN.md 的 M0→M8 全部走完；之后按用户对 WebBuilder 的实测反馈补了 M9（画布网格 / 层级选择 / 删除保护 / 右侧栏页签），又按第二轮反馈补了 M10（图层类型名中文化 / 删除入口显性化），最后按第三轮反馈补了 M11（定位到删除故障真因：新建模板页后自动选中根容器），又按第四轮反馈补了 M12（模板页上网格被根 frame 底色盖住 / 右键空白命中根导致删除项被置灰换文案），再按第五轮反馈补了 M13（组件面板改单列 + 分类折叠 / 主题变量中文名 / 输入框浅灰边框 / 三栏层次感），最后按第六轮反馈补了 M14（尺寸显示成 1440 × 900 并可改宽高 / 缩放下拉显示当前百分比 / 一键清空当前页面 / 组件内文字与边框间距修齐），又按第七轮反馈补了 M15（缩放百分比改成可直接输入数字），再按第八轮反馈补了 M16（缩放层改以左上角为原点，修掉缩放时组件/占位文字/多选框相对画布错位），最后按第九轮反馈补了 M17（文本/标题内容盒纵向居中修「文字偏下」、拖拽坐标改用按下时的原点与缩放快照修「不同缩放下拖组件越拖越偏」），又按第十轮反馈补了 M18（画布禁用浏览器原生拖拽与文字选区——那是「拖动时多出一个组件」和偶发不跟手的共同根因，拖入改走组件类型白名单，磁吸阈值按缩放换算，状态栏加版本角标）。** 里程碑 M1–M8 的完整计划、每项验收方式与砍需求优先级见 [PLAN.md](PLAN.md)；
+![CI](https://github.com/TGXC/visual-page-builder/actions/workflows/ci.yml/badge.svg)
+
+> **当前进度：M0–M23 全部完成**。PLAN.md 的 M0→M8（地基 + WebBuilder v1 迁移 / 18 项能力复刻 / 布局引擎 / 响应式断点 / 组件体系 / 代码生成 / AI 助手 / 收尾）全绿；之后按用户逐轮实测反馈补了 M9–M23 十五轮体验修订：画布网格与层级选择、删除保护、面板与主题、尺寸与缩放、拖拽手势（原生拖拽拦截 / 缩放原点 / 断点几何）、双击编辑、表格对齐、预设文字可见性、旧文档迁移、面板点选、跨断点自动适配。每轮都同时更新代码、测试与 README / PLAN / ADR 三处记录，并附验收数字。里程碑计划见 [PLAN.md](PLAN.md)，架构决策见 [docs/decisions.md](docs/decisions.md)。
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
 > 上一代的「表单搭建器」计划与决策已归档在 [docs/archive/](docs/archive/)。
 
@@ -367,6 +369,17 @@ npm run lint       # ESLint（含 core 分层规则）
 npm run build      # vue-tsc 严格类型检查 + 生产构建
 npm run preview    # 预览生产构建
 ```
+
+## 部署与上线
+
+纯前端应用：没有后端、没有环境变量、不需要数据库——文档 / 版本历史 / 主题都存在浏览器 `localStorage`，AI 助手默认走离线 Mock。`npm run build` 产出的 `dist/` 可以放到任意静态托管；`vite.config.ts` 里的 `base: './'` 让同一份产物在**根路径、GitHub Pages 项目子路径、自定义域名**下都能直接跑，不用改配置。
+
+- **GitHub Pages（已带工作流，推荐）**：把仓库推到 GitHub → `Settings → Pages → Source` 选 **GitHub Actions** → 之后每次 push `main`，`.github/workflows/deploy.yml` 会自动构建并发布到 `https://<用户名>.github.io/<仓库名>/`。首次需要在该仓库的 Actions 里点一次允许 Pages 部署。
+- **Vercel**：导入仓库 → Framework 选 Vite → Build Command `npm run build`、Output Directory `dist`（默认就能识别，无需额外配置）。
+- **Netlify**：导入仓库 → Build `npm run build`、Publish `dist`。
+- **手动上传**：`npm run build` 后把 `dist/` 整个目录传到 Nginx / 对象存储 / CDN。
+
+持续集成：`.github/workflows/ci.yml` 在每次 push 与 PR 上跑 lint → 单测 → 覆盖率（core 阈值 90%）→ 类型检查 + 构建 → 性能基准 → 导出冒烟，并保留 `dist` 产物。如果仓库名不是 `visual-page-builder`，记得把顶部的 CI badge 地址换成实际仓库。
 
 ## 目录结构
 

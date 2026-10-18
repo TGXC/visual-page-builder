@@ -1,9 +1,14 @@
 {
   "name": "visual-page-builder",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Studio：可视化页面搭建器（元素树 + 布局引擎 + 可控代码生成）",
+  "license": "MIT",
+  "author": "TGXC",
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
@@ -19,8 +24,7 @@
     "lz-string": "^1.5.0",
     "nanoid": "^6.0.2",
     "pinia": "^4.1.0",
-    "vue": "^3.5.42",
-    "vue-router": "^5.4.0"
+    "vue": "^3.5.42"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

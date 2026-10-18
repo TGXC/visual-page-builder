@@ -4,6 +4,9 @@ import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // 相对基路径：应用是单页、没有任何客户端路由，`./` 让同一份 dist 在
+  // GitHub Pages 的项目子路径（/repo/）、自定义域名、Vercel/Netlify 根路径下都能直接跑。
+  base: './',
   plugins: [vue()],
   resolve: {
     alias: {
