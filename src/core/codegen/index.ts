@@ -174,7 +174,8 @@ export const BASE_CSS = [
   '.el { position: absolute; box-sizing: border-box; overflow: hidden; }',
   '.el__muted { font-size: 0.9em; opacity: 0.65; }',
   '.el__title { font-size: 1.2em; font-weight: 600; }',
-  '.el__caption { font-size: 12px; line-height: 1.4; opacity: 0.6; }',
+  // M21：用户输入的文字是正文，不能再压成 0.6 透明度（用户反馈「颜色过淡」）
+  '.el__caption { font-size: 13px; line-height: 1.4; }',
   '.sub { font-size: 0.8em; opacity: 0.72; margin-top: 4px; }',
   'label { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }',
   'select, input, textarea { width: 100%; height: 100%; font: inherit; color: inherit; border: none; background: transparent; }',

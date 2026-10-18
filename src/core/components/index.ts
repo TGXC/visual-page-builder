@@ -50,6 +50,14 @@ export interface ComponentRenderContext {
   link: string
   /** props.text 按逗号切分出的选项 */
   options: string[]
+  /**
+   * 用户是否把文字改成了「非默认值」（M21）。
+   *
+   * 空容器的占位提示（「空容器」「空表单」……）只在没被改过时显示：用户输入自己的
+   * 文字后提示必须消失；把文字清空也视为「改过」，提示同样不再回来——这样预设提示
+   * 才真的删得掉（M21 用户反馈：输入文字后预设文本还在，而且删不掉）。
+   */
+  customText: boolean
 }
 
 export interface ComponentDescriptor {
@@ -249,6 +257,9 @@ function childNodes(node: SceneNode, nodes: Record<NodeId, SceneNode>): SceneNod
 }
 
 export function renderContext(node: SceneNode, nodes: Record<NodeId, SceneNode>): ComponentRenderContext {
+  const text = raw(node, 'text')
+  const descriptor = registry.get(node.type)
+  const defaultText = descriptor ? String(descriptor.defaultProps.text ?? '') : ''
   return {
     node,
     nodes,
@@ -257,12 +268,13 @@ export function renderContext(node: SceneNode, nodes: Record<NodeId, SceneNode>)
     get children(): SceneNode[] {
       return childNodes(node, nodes)
     },
-    label: raw(node, 'text'),
+    label: text,
     sub: raw(node, 'sub'),
     placeholder: raw(node, 'placeholder'),
     src: safeUrl(raw(node, 'src')),
     link: safeUrl(raw(node, 'link')),
-    options: optionsOf(raw(node, 'text')),
+    options: optionsOf(text),
+    customText: text !== defaultText,
   }
 }
 
@@ -379,7 +391,8 @@ const SPECS: Spec[] = [
     aiDoc: '容器（frame）：页面根节点或任意嵌套的布局盒子，可以装其它组件，支持四种排布模式。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
-    canvas: (ctx) => (ctx.children.length > 0 ? '' : '<span class="canvas-el__frame-hint">从左侧拖入组件开始搭建</span>'),
+    canvas: (ctx) =>
+      ctx.children.length > 0 || ctx.customText ? '' : '<span class="canvas-el__frame-hint">从左侧拖入组件开始搭建</span>',
   },
   {
     type: 'group',
@@ -394,7 +407,7 @@ const SPECS: Spec[] = [
     aiDoc: '分组（group）：把若干元素逻辑上归到一起，本身不带视觉样式，方便整体移动与显示隐藏。',
     overridable: ['bg', 'radius'],
     html: () => '',
-    canvas: (ctx) => (ctx.children.length > 0 ? '' : muted('空分组')),
+    canvas: (ctx) => (ctx.children.length > 0 || ctx.customText ? '' : muted('空分组')),
   },
   {
     type: 'section',
@@ -409,7 +422,7 @@ const SPECS: Spec[] = [
     aiDoc: '区块（section）：一块有背景的页面区域，用来划分页面结构，内部可以继续放其它元素。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
-    canvas: (ctx) => (ctx.children.length > 0 ? '' : muted('空区块')),
+    canvas: (ctx) => (ctx.children.length > 0 || ctx.customText ? '' : muted('空区块')),
   },
   {
     type: 'container',
@@ -424,7 +437,7 @@ const SPECS: Spec[] = [
     aiDoc: '弹性盒（container）：默认纵向排列子元素的布局盒子，可切换纵向、横向、网格排布。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
-    canvas: (ctx) => (ctx.children.length > 0 ? '' : muted('空容器')),
+    canvas: (ctx) => (ctx.children.length > 0 || ctx.customText ? '' : muted('空容器')),
   },
   {
     type: 'columns',
@@ -439,7 +452,7 @@ const SPECS: Spec[] = [
     aiDoc: '分栏（columns）：横向排列子元素的容器，用来做左右并排的内容。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
-    canvas: (ctx) => (ctx.children.length > 0 ? '' : muted('空分栏')),
+    canvas: (ctx) => (ctx.children.length > 0 || ctx.customText ? '' : muted('空分栏')),
   },
   {
     type: 'divider',
@@ -568,7 +581,7 @@ const SPECS: Spec[] = [
     aiDoc: '表单容器（form）：容纳输入控件并负责整体提交的容器，导出为原生 form 标签。',
     overridable: ['bg', 'radius', 'padding'],
     html: () => '',
-    canvas: (ctx) => (ctx.children.length > 0 ? '' : muted('空表单')),
+    canvas: (ctx) => (ctx.children.length > 0 || ctx.customText ? '' : muted('空表单')),
   },
   {
     type: 'input',
@@ -577,6 +590,11 @@ const SPECS: Spec[] = [
     icon: '⌷',
     // 输入类的可见文字是 placeholder，双击直接改它
     editKey: 'placeholder',
+    // M21：v1 的默认文字色是 #64748B（占位用的灰），用户反馈输入后文字太淡；
+    // 这里显式给正文色，并把默认提示文字直接写进 placeholder，新建出来就能看到。
+    size: [200, 36],
+    style: { fontSize: 13, color: '#1E293B', bg: '#FFFFFF', radius: 6, borderWidth: 1, borderColor: '#CBD5E1' },
+    props: { placeholder: '请输入…' },
     aiDoc: '输入框（input）：单行文本输入控件，用 placeholder 展示提示文字，可设置必填与校验。',
     overridable: ['placeholder', 'bg', 'color', 'radius', 'borderColor'],
     html: (ctx) => `<input type="text" placeholder="${escape(ctx.placeholder)}">`,
@@ -588,6 +606,10 @@ const SPECS: Spec[] = [
     category: 'form',
     icon: '¶',
     editKey: 'placeholder',
+    // M21：同输入框——默认文字用正文色，默认提示文字写进 placeholder
+    size: [220, 90],
+    style: { fontSize: 13, color: '#1E293B', bg: '#FFFFFF', radius: 6, borderWidth: 1, borderColor: '#CBD5E1' },
+    props: { placeholder: '请输入内容…' },
     aiDoc: '文本域（textarea）：多行文本输入控件，适合留言、描述一类长文本。',
     overridable: ['placeholder', 'bg', 'color', 'radius', 'borderColor'],
     html: (ctx) => `<textarea placeholder="${escape(ctx.placeholder)}"></textarea>`,

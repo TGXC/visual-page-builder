@@ -114,6 +114,7 @@ describe('M7 自定义组件受限 DSL（core/dsl，纯逻辑）', () => {
       src: '',
       link: '',
       options: [],
+      customText: false,
     })
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
     expect(html).not.toContain('<img')
@@ -250,6 +251,7 @@ describe('M7 自定义组件受限 DSL（core/dsl，纯逻辑）', () => {
       src: '',
       link: '',
       options: [],
+      customText: false,
     })
     expect(html).toContain('共 3 项')
     const withValues = descriptor.toHtml({
@@ -262,6 +264,7 @@ describe('M7 自定义组件受限 DSL（core/dsl，纯逻辑）', () => {
       src: '',
       link: '',
       options: [],
+      customText: false,
     })
     expect(withValues).toContain('共 42 项')
   })

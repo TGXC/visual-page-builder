@@ -810,8 +810,10 @@ textarea.editor-input {
 }
 
 .canvas-el__muted {
+  /* M21：原来只有 opacity .65，文字是和背景混出来的淡灰，用户反馈看不清；
+     改成实色弱化文字（比正文浅一档但仍然可读），不再用透明度。 */
+  color: var(--studio-text-weak, #475569);
   font-size: 0.92em;
-  opacity: 0.65;
 }
 
 .canvas-el__sub {
@@ -822,7 +824,8 @@ textarea.editor-input {
 }
 
 .canvas-el__frame-hint {
-  color: var(--studio-text-muted, #64748b);
+  /* M21：同上，占位提示用实色弱化文字，不再用淡灰 */
+  color: var(--studio-text-weak, #475569);
   font-size: 12px;
 }
 
@@ -906,9 +909,10 @@ textarea.editor-input {
 
 /* M20：内容里没有 text 的组件（容器/进度条/日期……）用角标显示用户输入的文字 */
 .canvas-el__content .el__caption {
-  font-size: 12px;
+  /* M21：用户输入的是正文，不能再用 0.6 透明度显示成“预设文本”的淡灰 */
+  font-size: 13px;
   line-height: 1.4;
-  opacity: 0.6;
+  color: inherit;
 }
 
 .canvas-el__content .el__tabs {

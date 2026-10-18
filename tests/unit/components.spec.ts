@@ -106,11 +106,20 @@ describe('组件描述符注册表', () => {
   })
 
   it('十五类 v1 组件的默认值与迁移表保持一致（防默认值漂移）', () => {
+    /**
+     * M21 有意覆盖的两类：v1 把输入类的提示文字放在 text 里（画布渲染 placeholder，
+     * 所以新建输入框是空的），且默认文字色是占位灰 #64748B（用户反馈太淡）。
+     * 这里显式登记，其余 13 类仍然必须和 v1 表逐项一致，防默认值悄悄漂移。
+     */
+    const M21_OVERRIDES: Record<string, { style?: Record<string, unknown>; props?: Record<string, unknown> }> = {
+      input: { style: { color: '#1E293B' }, props: { placeholder: '请输入…' } },
+      textarea: { style: { color: '#1E293B' }, props: { placeholder: '请输入内容…' } },
+    }
     for (const type of V1_TYPES) {
       const descriptor = getComponent(type)
       expect(descriptor).toBeDefined()
       const expectedStyle: Record<string, unknown> = {}
-      const expectedProps: Record<string, unknown> = {}
+      let expectedProps: Record<string, unknown> = {}
       for (const key of STYLE_KEYS) {
         const value = V1_DEFAULTS[type]?.[key]
         if (value !== undefined && value !== (DEFAULT_STYLE as unknown as Record<string, unknown>)[key]) {
@@ -120,6 +129,9 @@ describe('组件描述符注册表', () => {
       for (const key of CONTENT_KEYS) {
         if (V1_DEFAULTS[type]?.[key] !== undefined) expectedProps[key] = V1_DEFAULTS[type][key]
       }
+      const override = M21_OVERRIDES[type]
+      if (override?.style) Object.assign(expectedStyle, override.style)
+      if (override?.props) expectedProps = override.props
       expect(descriptor?.defaultStyle).toMatchObject(expectedStyle)
       expect(descriptor?.defaultProps).toMatchObject(expectedProps)
       expect(descriptor?.defaultSize).toEqual({ w: V1_DEF_SIZE[type][0], h: V1_DEF_SIZE[type][1] })
@@ -292,9 +304,10 @@ describe('组件内容渲染（导出）', () => {
 describe('组件内容渲染（画布）', () => {
   it('画布沿用编辑器类名，空容器给出提示', () => {
     expect(canvas(makeNode({ id: 'n1', type: 'text', props: { text: '文字' } }))).toContain('文字')
-    expect(canvas(makeNode({ id: 'n1', type: 'frame' }))).toContain('canvas-el__frame-hint')
-    expect(canvas(makeNode({ id: 'n1', type: 'group' }))).toContain('空分组')
-    expect(canvas(makeNode({ id: 'n1', type: 'section' }))).toContain('canvas-el__muted')
+    // M21：空态提示只在「文字还是默认值」时出现，所以这里要带上默认文字
+    expect(canvas(makeNode({ id: 'n1', type: 'frame', props: { text: '容器' } }))).toContain('canvas-el__frame-hint')
+    expect(canvas(makeNode({ id: 'n1', type: 'group', props: { text: '分组' } }))).toContain('空分组')
+    expect(canvas(makeNode({ id: 'n1', type: 'section', props: { text: '区块' } }))).toContain('canvas-el__muted')
     expect(canvas(makeNode({ id: 'n1', type: 'image', props: { text: '🖼️' } }))).toContain('canvas-el__muted')
     expect(canvas(makeNode({ id: 'n1', type: 'video' }))).toContain('canvas-el__play')
     expect(canvas(makeNode({ id: 'n1', type: 'select' }))).toContain('canvas-el__caret')
@@ -305,12 +318,27 @@ describe('组件内容渲染（画布）', () => {
     )
   })
 
+  it('M21：容器改过文字后不再显示空态提示（清空也算改过，提示删得掉）', () => {
+    // 改过：显示用户自己的文字，提示消失
+    expect(canvas(makeNode({ id: 'n1', type: 'group', props: { text: '我的分组' } }))).not.toContain('空分组')
+    // 清空：提示也不能回来，否则等于删不掉预设文本
+    expect(canvas(makeNode({ id: 'n1', type: 'group', props: { text: '' } }))).not.toContain('空分组')
+    expect(canvas(makeNode({ id: 'n1', type: 'form', props: { text: '' } }))).not.toContain('空表单')
+    // 没改过：提示还在
+    expect(canvas(makeNode({ id: 'n1', type: 'form', props: { text: '表单' } }))).toContain('空表单')
+  })
+
   it('容器有子节点时不再显示空态提示', () => {
     const child = makeNode({ id: 'c1', type: 'text', parentId: 'n1', order: 0 })
     const container = makeNode({ id: 'n1', type: 'group' })
     const nodes = { n1: container, c1: child }
     expect(renderCanvasContent(container, nodes)).not.toContain('空分组')
-    expect(renderCanvasContent(makeNode({ id: 'n2', type: 'group' }), { n2: makeNode({ id: 'n2', type: 'group' }) })).toContain('空分组')
+    expect(
+      renderCanvasContent(
+        makeNode({ id: 'n2', type: 'group', props: { text: '分组' } }),
+        { n2: makeNode({ id: 'n2', type: 'group', props: { text: '分组' } }) },
+      ),
+    ).toContain('空分组')
   })
 })
 

@@ -147,7 +147,7 @@ describe('M1 编辑器：画布交互与面板', () => {
   })
 
   it('状态栏显示当前界面版本号（对不上就是浏览器缓存了旧文件）', async () => {
-    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M20')
+    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M21')
   })
 
   it('拖动元素改位置，Ctrl+Z 撤销回原位', async () => {
@@ -767,6 +767,54 @@ describe('M1 编辑器：画布交互与面板', () => {
     // 基础样式里 th/td 必须是 inherit，否则会把上面这条盖掉
     expect(store.generatedHtml).toContain('text-align: inherit')
     expect(store.generatedHtml).not.toContain('border: 1px solid var(--studio-border')
+  })
+
+  it('M21：空容器的预设提示在输入文字后消失，清空后也不会回来（提示删得掉）', async () => {
+    const id = store.insertComponent('container', { position: { x: 40, y: 40 } })
+    store.setSize(id, 320, 180, 'init')
+    await flush()
+    expect(nodeEl(wrapper, id).querySelector('.canvas-el__muted')?.textContent).toBe('空容器')
+
+    nodeEl(wrapper, id).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await flush()
+    await wrapper.find('[data-role="text-editor"]').setValue('我的区域')
+    await wrapper.find('[data-role="text-editor"]').trigger('keydown', { key: 'Enter' })
+    await flush()
+
+    // 用户文字替换掉预设提示，画布里只剩自己的文字
+    expect(nodeEl(wrapper, id).querySelector('.canvas-el__muted')).toBeNull()
+    expect(nodeEl(wrapper, id).querySelector('.el__caption')?.textContent).toBe('我的区域')
+
+    // 再把文字清空：预设提示也不能回来，否则等于「无法删除预设文本」
+    nodeEl(wrapper, id).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await flush()
+    await wrapper.find('[data-role="text-editor"]').setValue('')
+    await wrapper.find('[data-role="text-editor"]').trigger('keydown', { key: 'Enter' })
+    await flush()
+    expect(nodeEl(wrapper, id).querySelector('.canvas-el__muted')).toBeNull()
+    expect(nodeEl(wrapper, id).querySelector('.el__caption')).toBeNull()
+  })
+
+  it('M21：输入框/文本域默认文字是正文色，新建就能看到提示，且提示可删', async () => {
+    const inputId = store.insertComponent('input', { position: { x: 40, y: 40 } })
+    const textareaId = store.insertComponent('textarea', { position: { x: 40, y: 120 } })
+    await flush()
+
+    expect(nodeEl(wrapper, inputId).querySelector('.canvas-el__content')?.textContent).toContain('请输入…')
+    expect(nodeEl(wrapper, textareaId).querySelector('.canvas-el__content')?.textContent).toContain('请输入内容…')
+    // 正文色 #1E293B，不再是 v1 的占位灰 #64748B
+    expect(nodeEl(wrapper, inputId).style.color).toBe('rgb(30, 41, 59)')
+    expect(nodeEl(wrapper, textareaId).style.color).toBe('rgb(30, 41, 59)')
+
+    // 双击改的是 placeholder，清空即删掉预设提示
+    nodeEl(wrapper, inputId).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await flush()
+    const editor = wrapper.find('[data-role="text-editor"]')
+    await editor.setValue('')
+    await editor.trigger('keydown', { key: 'Enter' })
+    await flush()
+    expect(store.nodes[inputId].props.placeholder).toBe('')
+    expect(nodeEl(wrapper, inputId).querySelector('.canvas-el__content')?.textContent).toBe('')
   })
 
   it('自动保存：改动后 400ms 写入 localStorage', async () => {

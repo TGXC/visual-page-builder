@@ -684,6 +684,14 @@
 
 **代价**：`th` 不再有「表头自动居中」的默认行为，需要用户自己选居中（这是有意的——「所见即所得」优先于浏览器默认）；`inherit` 依赖祖先链上真的有人设置 `text-align`，如果以后给 `.el__table` 自身加了对齐规则，单元格会一起变；导出侧新增两条基础规则会让 M5 的结构快照变化（已同步更新快照）。
 
+## D84：空态提示只在「文字还是默认值」时出现（`customText`），输入类默认文字色从占位灰改正文色、默认提示搬进 `placeholder`
+
+**决定**：渲染上下文 `ComponentRenderContext` 增加 `customText: text !== descriptor.defaultProps.text`（清空 `text` 也算改过）。frame / group / section / container / columns / form 六个容器的空态提示统一改成 `ctx.children.length > 0 || ctx.customText ? '' : muted(...)`。`input` / `textarea` 的描述符不再吃 v1 默认值，改为显式 `size` + `style: { fontSize: 13, color: '#1E293B', bg: '#FFFFFF', radius: 6, borderWidth: 1, borderColor: '#CBD5E1' }` + `props.placeholder`（`请输入…` / `请输入内容…`）；`V1_DEFAULTS` 迁移表保持原样，描述符覆盖在 `tests/unit/components.spec.ts` 里用 `M21_OVERRIDES` 显式登记。颜色侧：`editor.css` 的 `.canvas-el__muted` / `.canvas-el__frame-hint` 从 `opacity: .65` 改成实色 `color: var(--studio-text-weak, #475569)`；`.el__caption` 与 `BASE_CSS` 的同名规则去掉 `opacity`、字号 13px、颜色继承。`src/config/build.ts` 的 `BUILD_TAG` 改 `'M21'`。
+
+**理由**：用户 m13007 反馈「除表格外，都有字体颜色过淡的问题（与预设文本都是淡灰色），且当我输入文字后，预设文本（如空容器）并不会消失，且无法删除预设文本」。三个来源分别是：①输入类沿用 v1 的 `#64748B`（在 v1 里那是 placeholder 的灰），而 M20 之后画布与导出都把 `placeholder` 当正文渲染；②空态提示的灰是 `opacity` 和背景混出来的，不是 token；③空态提示是组件渲染的 HTML、只看「有没有子节点」，和用户改没改文字无关——所以它既不会因输入而消失，也没有可删除的入口（用户能看见它、却永远改不了它）。把「是否改过文字」变成渲染上下文里的显式布尔值，一条规则就能让六个容器同时满足「输入即替换、清空即删掉」，而不用在 DOM 层做「可编辑的预设文本」（`v-html` 出来的语义 HTML 不可控，加 contenteditable 会破坏标签结构）。
+
+**代价**：`customText` 的判定是「文字 ≠ 默认值」而不是「用户是否操作过」——把文字改回默认字面值（比如把容器文字又输回「容器」）会重新显示提示，「重置」只能重新拖一个组件；颜色只改默认值，已经被用户手改过颜色的节点不受影响；导出侧 `.el__muted` 仍是 `opacity: .65`，与编辑器的 `--studio-text-weak` 是两套弱化实现（导出页面没有编辑器 token）；输入类默认提示从 `text` 搬到 `placeholder`，与 v1 迁移表不一致，靠单测的 `M21_OVERRIDES` 锁住，以后若改 v1 表要同步删掉这层覆盖。
+
 
 
 

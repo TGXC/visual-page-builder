@@ -288,6 +288,17 @@ npm run build
 
 
 
+### M21 预设文字的可见性与可删除性（计划外，用户第十三轮反馈）
+
+**触发**：用户第十三轮反馈两条——「我刚说的那些组件，除表格外，都有字体颜色过淡的问题（与预设文本都是淡灰色）」与「当我输入文字后，预设文本（如空容器）并不会消失，且无法删除预设文本」。都是 M20 之后暴露的「默认值/占位层」问题：文字颜色与提示文案都由默认值和 CSS 透明度决定，而空态提示跟「用户改没改文字」完全无关。
+
+**根因**：①`input` / `textarea` 的描述符沿用 v1 的默认字色 `#64748B`（v1 里那本是 placeholder 的灰），M20 之后画布与导出把 `placeholder` 当正文渲染，看上去就是淡灰；②`.canvas-el__muted` / `.canvas-el__frame-hint` 只有 `opacity: .65`、`.el__caption` 带 `opacity: .6`，叠在背景上混成淡灰；③六个容器的空态提示只看 `ctx.children.length`，与用户改没改 `text` 无关，所以输入文字后提示还压在上面，清空文字也删不掉。
+
+**做了什么**：渲染上下文新增 `customText`（`text !== 默认 props.text`，清空也算改过），frame / group / section / container / columns / form 六个空态提示统一按 `children.length > 0 || customText` 决定是否输出；`input` / `textarea` 显式给 `size` / `style`（正文色 `#1E293B`）/ `props.placeholder`（`请输入…` / `请输入内容…`），默认提示从 `text` 搬到 `placeholder`；`editor.css` 的 muted / frame-hint 改实色弱化 `--studio-text-weak`（#475569）、角标改 13px + `color: inherit` + 无透明度，`BASE_CSS` 的 `.el__caption` 同步去掉 `opacity`；`BUILD_TAG` 改 `M21`（D84）。
+
+**验收**：`npm test` 52 文件 / 607 用例、覆盖率 97.21 / 90.93 / 97.39 / 99.35、`lint` 0、`build` 0 类型错误（99 modules；JS 286.68 kB / gzip 98.93，CSS 29.97 kB / gzip 5.79）、`test:perf` 布局 5.00ms / 导出 145.49ms（CSS 43.09 / HTML 47.28 / 整站 47.70 / ZIP 7.51ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 7317`）。新增 2 例组件测试：容器双击输入后预设提示消失、清空后也不回来；输入框 / 文本域画布文字是正文色且提示可清空。`components.spec.ts` 更新空态提示断言（要带上默认文字）、登记 `M21_OVERRIDES`、新增「容器改过文字后不再显示空态提示」，`customDsl.spec.ts` 三处 fixture 补 `customText`，M5 导出结构快照更新。**未做**：颜色只改默认值（已经手改过颜色的节点不受影响）；导出侧 `.el__muted` 仍用 `opacity: .65`，与编辑器 token 两套实现；`customText` 判定「文字 ≠ 默认值」，改回默认字面值会重新出现提示；角标改正文色后「用户输入」与真内容更难区分；`text` 与 `placeholder` 仍是两个字段。
+
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。
