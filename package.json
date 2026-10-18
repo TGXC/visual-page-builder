@@ -2,7 +2,7 @@
   "name": "visual-page-builder",
   "private": true,
   "version": "1.0.0",
-  "description": "Studio：可视化页面搭建器（元素树 + 布局引擎 + 可控代码生成）",
+  "description": "Studio：浏览器里直接用的可视化页面搭建器（元素树 + 布局引擎 + 断点覆盖 + 可控代码生成）",
   "license": "MIT",
   "author": "TGXC",
   "type": "module",

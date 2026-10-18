@@ -1,11 +1,90 @@
 # Studio 可视化页面搭建器
 
-一个**不依赖任何拖拽库、UI 组件库**的可视化页面搭建器：把 WebBuilder 那套「拖拽排版 + 图层 + 属性面板 + 代码导出」的量级，
-升级成**元素树 + 布局引擎 + 断点覆盖 + 组件体系 + AI 只产出补丁**的架构。
-
-技术栈：Vue 3.5 + TypeScript 6（strict）+ Vite 8 + Pinia + Vitest + jsdom。拖拽用原生 Pointer Events 手写。
-
 ![CI](https://github.com/TGXC/visual-page-builder/actions/workflows/ci.yml/badge.svg)
+
+## 目录
+
+- [项目简介](#项目简介) · [功能介绍](#功能介绍) · [快速开始](#快速开始) · [部署与上线](#部署与上线)
+- [目录结构](#目录结构) · [架构决策](#架构决策)
+- 质量数据、已知缺口、各里程碑（M0–M23）的逐轮改动见下方对应章节；计划见 [PLAN.md](PLAN.md)，架构决策记录（ADR）见 [docs/decisions.md](docs/decisions.md)。
+
+## 项目简介
+
+**Studio 是一个在浏览器里直接使用的可视化页面搭建器**：拖拽排版、图层树、属性面板、断点覆盖、代码导出，全部在本地完成——没有后端、没有账号，打开就能用，数据只存在浏览器 `localStorage` 里。
+
+它从参考实现 [visual-builder](https://github.com/Noah-Deleveq/visual-builder)（单文件 `index.html`）的能力基线出发，但把数据模型整体重写成**元素树 + 布局引擎 + 断点覆盖 + 插件式组件 + AI 只产出补丁**的架构：拖拽不再是「改绝对坐标」，而是写进一棵可序列化的元素树，由布局引擎算盒、由代码生成器输出可直接部署的 HTML / CSS。适合需要快速产出响应式静态页与原型的人，也适合作为前端工程能力的完整示例。
+
+- **技术栈**：Vue 3.5 · TypeScript 6（strict）· Vite 8 · Pinia · Vitest + jsdom。拖拽用原生 Pointer Events 手写，**零拖拽库、零 UI 组件库**；运行时除 Vue / Pinia 外只有 `nanoid`（生成节点 id）与 `lz-string`（压缩分享链接）两个小库。
+- **规模**：40 类可见组件（布局 7 / 基础 8 / 表单 12 / 媒体 5 / 展示 8，另有内部 `instance`）+ AI 注册的自定义组件；3 档预设断点（1440×900 / 768×1024 / 375×812）与自定义视口；4 种导出（HTML / CSS / Vue SFC / 静态多页 ZIP），另有 JSON 文档导入导出、分享链接与 PNG 截图。
+- **质量**：52 个测试文件、**620 例单测**，语句覆盖 97% / 分支 90%；`vue-tsc` strict 0 错、ESLint 0 告警；1000 节点整树布局中位数约 5ms、整站导出约 115ms；生产构建 JS 294 kB（gzip 101 kB）/ CSS 30 kB（gzip 6 kB）。
+- **上手**：`npm install && npm run dev`（Node ≥ 22.12），命令见 [快速开始](#快速开始)，上线见 [部署与上线](#部署与上线)。
+
+## 功能介绍
+
+### 画布编辑
+
+- 从左侧面板**拖入画布**，落到容器上即成为其子节点；**面板点击只是只读「看属性」**，不会插入。
+- **移动 / 8 向缩放手柄**（`Shift` 等比）、**6px 磁吸参考线**、**框选多选**、六向对齐、方向键微调；双击任意组件**行内改字**（输入类改的是 `placeholder`，容器类用半透明角标显示自定义文字）。
+- **撤销 / 重做**（逆补丁 + 400ms 合并窗口，可跳转历史点）、右键菜单（复制 / 粘贴 / 创建副本 / 置顶置底 / 复制与粘贴样式 / 删除）、**多页面**、画布缩放 25%–200%（百分比可直接输入）、视口宽高可改、一键清空当前页。
+
+### 布局与响应式
+
+- 布局引擎支持 `free / vertical / horizontal / grid` 四种排列与 `fixed / hug / fill / ratio` 四种尺寸策略，容器可嵌套，父容器 padding 参与子元素定位。
+- 三档断点**继承 + 覆盖**：窄断点只存与更宽一级的差异，导出时自动生成 media query。
+- **跨断点自动适配**：按几何自动推断锚定（贴左 / 贴右 / 左右拉伸 / 居中 / 等比缩放）——新插入组件即带推断，可一键「整页自动适配」，窄断点上手动拖过的元素优先生效、导出固定按设计尺寸而不是当前预览断点。
+
+### 组件体系
+
+- **40 类内置组件**：布局容器（frame / group / section / container / columns / divider / spacer）、基础（文本 / 标题 / 标签 / 按钮 / 链接 / 徽标 / 矩形 / 圆形）、表单 12 类（表单容器 / 输入 / 文本域 / 下拉 / 复选 / 单选 / 开关 / 滑块 / 日期 / 数字 / 文件 / 评分）、媒体（图片 / 视频 / 音频 / 图标 / 头像）、展示（导航 / 页头 / 卡片 / 列表 / 表格 / 标签页 / 提示 / 进度条）。
+- **插件式组件描述符**：渲染（画布与导出两套）/ 默认属性 / 可覆盖字段 / AI 说明 / 自定义 CSS 全在一个 `ComponentDescriptor` 里，新增组件只需写一个描述符。
+- **AI 生成自定义组件**：受限 DSL → 校验 → 编译成普通描述符 → 预览 → 注册进「我的组件」，只存 DSL 数据、读回重新编译。
+
+### 主题与样式
+
+- **主题变量**：受控样式里的颜色字段（背景 / 文字 / 边框 / 阴影色）可以写 `$color-primary`，导出成 `var(--color-primary)` + `:root{}`，改一处全站同步；面板按颜色 / 字号 / 圆角 / 阴影分组，未定义的引用会提示。
+- 属性面板：22 项属性白名单（内容 + 样式 + 图层元信息）、位置与尺寸精确输入（绝对盒语义，跨断点自动换算）、样式复制与粘贴、水平对齐、图层名 / 显隐 / 锁定。
+
+### 导出与交付
+
+- **HTML / CSS / Vue SFC / 静态多页 ZIP** 四种导出；CSS 独立不内联、包含断点 media query；ZIP 是纯静态站，解压即可部署。
+- JSON 文档导入导出、**分享链接**（`#doc=` + base64url，无需后端）、PNG 截图（自写 PNG 编码器，跑在浏览器里）。
+
+### AI 助手
+
+- 自然语言改稿，但助手**只产出补丁**，经确认才写进文档、全程可撤销；默认走离线 Mock（无网络也能演示），也可接 OpenAI 兼容接口；带成本估算与失败降级。
+
+### 工程质量
+
+- TypeScript strict + ESLint；**620 例单测**（Vitest + jsdom，含组件级指针交互测试）、覆盖率统计、性能基准（1000 节点布局 / 整站导出）与导出冒烟测试。
+- CI 一条链：`npm ci → lint → test → coverage → build → perf → smoke`，并保留 `dist` 产物；发布用 GitHub Pages 工作流。
+
+## 快速开始
+
+```bash
+npm install
+
+npm run dev        # 开发服务器
+npm run test       # Vitest 全量单测 + 组件测试
+npm run test:perf  # 1000 节点布局性能（阈值：整树 < 8ms）
+npm run test:smoke # 导出冒烟：真实写出 studio.html / site.zip，供外部工具校验
+npm run coverage   # 覆盖率（阈值：语句/分支/函数/行 ≥ 90）
+npm run lint       # ESLint（含 core 分层规则）
+npm run build      # vue-tsc 严格类型检查 + 生产构建
+npm run preview    # 预览生产构建
+```
+
+## 部署与上线
+
+纯前端应用：没有后端、没有环境变量、不需要数据库——文档 / 版本历史 / 主题都存在浏览器 `localStorage`，AI 助手默认走离线 Mock。`npm run build` 产出的 `dist/` 可以放到任意静态托管；`vite.config.ts` 里的 `base: './'` 让同一份产物在**根路径、GitHub Pages 项目子路径、自定义域名**下都能直接跑，不用改配置。
+
+- **GitHub Pages（已带工作流，推荐）**：把仓库推到 GitHub → `Settings → Pages → Source` 选 **GitHub Actions** → 之后每次 push `main`，`.github/workflows/deploy.yml` 会自动构建并发布到 `https://<用户名>.github.io/<仓库名>/`。首次需要在该仓库的 Actions 里点一次允许 Pages 部署。
+- **Vercel**：导入仓库 → Framework 选 Vite → Build Command `npm run build`、Output Directory `dist`（默认就能识别，无需额外配置）。
+- **Netlify**：导入仓库 → Build `npm run build`、Publish `dist`。
+- **手动上传**：`npm run build` 后把 `dist/` 整个目录传到 Nginx / 对象存储 / CDN。
+
+持续集成：`.github/workflows/ci.yml` 在每次 push 与 PR 上跑 lint → 单测 → 覆盖率（core 阈值 90%）→ 类型检查 + 构建 → 性能基准 → 导出冒烟，并保留 `dist` 产物。如果仓库名不是 `visual-page-builder`，记得把顶部的 CI badge 地址换成实际仓库。
+
+## 开发进度
 
 > **当前进度：M0–M23 全部完成**。PLAN.md 的 M0→M8（地基 + WebBuilder v1 迁移 / 18 项能力复刻 / 布局引擎 / 响应式断点 / 组件体系 / 代码生成 / AI 助手 / 收尾）全绿；之后按用户逐轮实测反馈补了 M9–M23 十五轮体验修订：画布网格与层级选择、删除保护、面板与主题、尺寸与缩放、拖拽手势（原生拖拽拦截 / 缩放原点 / 断点几何）、双击编辑、表格对齐、预设文字可见性、旧文档迁移、面板点选、跨断点自动适配。每轮都同时更新代码、测试与 README / PLAN / ADR 三处记录，并附验收数字。里程碑计划见 [PLAN.md](PLAN.md)，架构决策见 [docs/decisions.md](docs/decisions.md)。
 > 产品级功能设计（含 18 项能力对照与六个结构性短板）见 [docs/功能文档-v2-可视化页面搭建器.md](docs/功能文档-v2-可视化页面搭建器.md)。
@@ -25,6 +104,13 @@
 | S4 | 响应式是假的（只改画布宽高） | `handleViewport()` 只改 `curW/curH` | `Breakpoint[]` + `Node.overrides[breakpointId]` 继承/覆盖，导出 media query |
 | S5 | 15 类组件写死 | `VALID_TYPES` / `normalizeProps` 硬编码 | 插件式 `ComponentDescriptor`（`toHtml` / `aiDoc` / `overridable`） |
 | S6 | 导出全内联样式，CSS 页签是占位 | `buildHtml()` 拼 `style="…"` | 干净的 HTML + 独立 CSS，另有 Vue SFC 与静态多页 zip |
+
+## M0 已经做了什么
+
+1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
+2. **收敛层 `normalizeSchema`**：任何来源（导入 / 读档 / AI 产出）都要先过一遍 —— 未知类型回落 `rect`、非法父级挂回根、断环、id 去重、同级 `order` 重排成 `0..n-1`。**同一逻辑状态必须序列化成同一份 JSON。**
+3. **WebBuilder v1 一键迁移**：粘贴或选择一个 v1 导出文件（`{app:'visual-builder', version:1, pages:[{elements:[…]}]}`）或 localStorage 存档（`visual_builder_v1`），迁移成 v2 文档：22 个属性按白名单拆进 `style / props / meta`，`hidden` / `locked` 保留布尔语义，`name` 变成图层名，越界坐标与尺寸夹取，页数 ≤50、每页元素 ≤2000。
+4. **最小可用壳**：顶栏「新建项目 / 导入 JSON 文件」、粘贴 JSON 导入、页面标签切换、元素列表（id / 类型 / 文案 / 位置 / 尺寸）。
 
 ## M1 已经做了什么：WebBuilder 18 项能力逐条对齐
 
@@ -347,39 +433,6 @@ M22 交付后用户回了：**「把之前提到的完善桌面，平板，手�
 | 2 | 新拖入的组件、旧文档里的组件锚定全是「左上」，自动适配从哪来的锚定值？ | 没有 UI 的年代不存在用户意图，所以按几何位置推断：宽/高占内容框 ≥85% → 两端拉伸、相差 ≤2px 的贴边 → 贴右/贴底、中心偏差 ≤2px → 居中，其余保持左/上（`scale` 不自动推断：等比缩放会把按钮标签缩成邮票大小，需要时在属性面板手动选）；插入新组件时带上推断值、整页「自动适配」一键推断（可撤销）、读档时把仍是默认 `{left,top}` 的节点迁移成推断值。手动优先：在窄断点上拖过/缩过或属性面板选过锚定的节点不再被自动推断覆盖（D88） |
 
 M23 没有新依赖；改动 `src/core/responsive/index.ts`（`inferConstraints` / `inferPageConstraints` / `nodesForLayout()` / `ConstraintH`·`ConstraintV` 类型与锚定推断阈值）、`src/core/schema/types.ts`（`Page.designViewport`：基准断点下的设计尺寸）、`src/core/schema/normalize.ts`（`designViewport` 的收敛：夹取到合法视口范围）、`src/stores/editor.ts`（`baseViewport` / `layoutNodes`，`layout` / `exportBoxes` 传 `reference`；`inferConstraintsOf` / `applyResponsiveAdapt` / `inferDocConstraints` / `setAbsBox`；`applyViewport()` 在基准断点记录设计尺寸；`exportDoc` 每页都回设计尺寸）、`src/core/codegen/index.ts`（`generateResponsiveCss` 以设计尺寸为参考系，媒体查询里的换算跟着对）、`src/components/canvas/CanvasStage.vue`（拖拽/缩放改走 `setAbsBox`，绝对盒与写回相对坐标在 store 里收口）、`src/components/editor/PropPanel.vue`（新增「跨断点适应」区：水平/垂直锚定下拉 + 「此断点已手动调整」提示 + 重置，位置/尺寸按绝对盒显示与写入）、`src/config/build.ts`（角标 `M23`）；`tests/unit/responsive.spec.ts` 新增 4 例（满宽拉伸、居中/贴右、近满宽不误判成等比缩放、`inferPageConstraints` 与手动优先）、`tests/unit/responsiveExport.spec.ts` 新增 1 例（居中组件在手机媒体查询里按 375 宽重新居中）、`tests/component/editor.spec.ts` 新增 4 例（新插组件带推断锚定、一键自动适配含旧宿主、窄断点拖拽写 position 并定住锚定、属性面板设锚定落 override 且再拖不被改），全量 52 文件 / 620 例。
-
-## M0 已经做了什么
-
-1. **元素树与文档模型**：`Doc{version:2, pages, activePageId, breakpoints, theme}`，每页 `Page{root, nodes}`；`Patch` 只有 `insert / remove / update / move` 四种。
-2. **收敛层 `normalizeSchema`**：任何来源（导入 / 读档 / AI 产出）都要先过一遍 —— 未知类型回落 `rect`、非法父级挂回根、断环、id 去重、同级 `order` 重排成 `0..n-1`。**同一逻辑状态必须序列化成同一份 JSON。**
-3. **WebBuilder v1 一键迁移**：粘贴或选择一个 v1 导出文件（`{app:'visual-builder', version:1, pages:[{elements:[…]}]}`）或 localStorage 存档（`visual_builder_v1`），迁移成 v2 文档：22 个属性按白名单拆进 `style / props / meta`，`hidden` / `locked` 保留布尔语义，`name` 变成图层名，越界坐标与尺寸夹取，页数 ≤50、每页元素 ≤2000。
-4. **最小可用壳**：顶栏「新建项目 / 导入 JSON 文件」、粘贴 JSON 导入、页面标签切换、元素列表（id / 类型 / 文案 / 位置 / 尺寸）。
-
-## 快速开始
-
-```bash
-npm install
-
-npm run dev        # 开发服务器
-npm run test       # Vitest 全量单测 + 组件测试
-npm run test:perf  # 1000 节点布局性能（阈值：整树 < 8ms）
-npm run test:smoke # 导出冒烟：真实写出 studio.html / site.zip，供外部工具校验
-npm run coverage   # 覆盖率（阈值：语句/分支/函数/行 ≥ 90）
-npm run lint       # ESLint（含 core 分层规则）
-npm run build      # vue-tsc 严格类型检查 + 生产构建
-npm run preview    # 预览生产构建
-```
-
-## 部署与上线
-
-纯前端应用：没有后端、没有环境变量、不需要数据库——文档 / 版本历史 / 主题都存在浏览器 `localStorage`，AI 助手默认走离线 Mock。`npm run build` 产出的 `dist/` 可以放到任意静态托管；`vite.config.ts` 里的 `base: './'` 让同一份产物在**根路径、GitHub Pages 项目子路径、自定义域名**下都能直接跑，不用改配置。
-
-- **GitHub Pages（已带工作流，推荐）**：把仓库推到 GitHub → `Settings → Pages → Source` 选 **GitHub Actions** → 之后每次 push `main`，`.github/workflows/deploy.yml` 会自动构建并发布到 `https://<用户名>.github.io/<仓库名>/`。首次需要在该仓库的 Actions 里点一次允许 Pages 部署。
-- **Vercel**：导入仓库 → Framework 选 Vite → Build Command `npm run build`、Output Directory `dist`（默认就能识别，无需额外配置）。
-- **Netlify**：导入仓库 → Build `npm run build`、Publish `dist`。
-- **手动上传**：`npm run build` 后把 `dist/` 整个目录传到 Nginx / 对象存储 / CDN。
-
-持续集成：`.github/workflows/ci.yml` 在每次 push 与 PR 上跑 lint → 单测 → 覆盖率（core 阈值 90%）→ 类型检查 + 构建 → 性能基准 → 导出冒烟，并保留 `dist` 产物。如果仓库名不是 `visual-page-builder`，记得把顶部的 CI badge 地址换成实际仓库。
 
 ## 目录结构
 
