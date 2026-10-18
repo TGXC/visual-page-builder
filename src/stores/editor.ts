@@ -9,6 +9,7 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type {
   Breakpoint,
+  Constraints,
   Doc,
   LayoutSpec,
   NodeId,
@@ -86,6 +87,8 @@ import {
   breakpointViewport,
   effectiveNodes,
   effectivePage,
+  inferPageConstraints,
+  nodesForLayout,
   orderedBreakpoints,
   overrideFlags,
   writeOverride,
@@ -141,7 +144,33 @@ export interface NodeEdit {
 }
 
 function initialDoc(): Doc {
-  return loadDoc() ?? createDoc('我的站点')
+  return inferDocConstraints(loadDoc() ?? createDoc('我的站点'))
+}
+
+/**
+ * 载入时给「还是默认 left/top」的节点补上锚定（M23）。
+ *
+ * 旧文档（模板、localStorage、导入的 JSON）里所有节点都是 `left/top`，直接靠 constraints
+ * 做响应式的话切到平板/手机完全不会跟着变——所以载入时按基准断点几何推断一次。
+ * 已经有非默认锚定（用户手动选过 / 之前推断过）的节点保持不动，迁移是幂等的。
+ */
+function inferDocConstraints(doc: Doc): Doc {
+  const pages = doc.pages.map((page) => {
+    const size = page.designViewport ?? page.viewport
+    const inferred = inferPageConstraints(page.nodes, page.root, size)
+    const nodes = { ...page.nodes }
+    for (const id of Object.keys(inferred)) {
+      const node = nodes[id]
+      const suggestion = inferred[id]
+      if (!node || !suggestion) continue
+      const current = node.layout.constraints
+      if (current.h !== 'left' || current.v !== 'top') continue
+      if (suggestion.h === 'left' && suggestion.v === 'top') continue
+      nodes[id] = { ...node, layout: { ...node.layout, constraints: suggestion } }
+    }
+    return { ...page, nodes }
+  })
+  return { ...doc, pages }
 }
 
 export const useEditorStore = defineStore('editor', () => {
@@ -180,16 +209,31 @@ export const useEditorStore = defineStore('editor', () => {
   /** 当前是否在基准（最宽）断点上编辑：只有基准上的编辑才写节点本身 */
   const isBaseBreakpoint = computed(() => baseBreakpointId(doc.value.breakpoints) === breakpointId.value)
   /**
+   * 基准断点的设计尺寸（M23）：constraints 换算的参考系。
+   * 在基准断点编辑时就是当前画布；切到窄断点后画布被改写成断点宽度，所以必须从
+   * `designViewport`（M14 自定义宽高也记在这里）或断点预设里取回来。
+   */
+  const baseViewport = computed<{ w: number; h: number }>(() => {
+    const base = baseBreakpoint.value
+    if (!base || isBaseBreakpoint.value) return activePage.value.viewport
+    return activePage.value.designViewport ?? breakpointViewport(base)
+  })
+  /**
    * 当前断点下的**有效节点**：结构仍来自原节点，样式/属性/布局叠加上继承链上的覆盖。
    * 画布渲染、选择态属性面板、布局引擎都用它，否则「改了手机断点却看不见」。
    */
   const resolvedNodes = computed(() => effectiveNodes(nodes.value, doc.value.breakpoints, breakpointId.value))
   /**
+   * 布局用的有效节点（M23）：在 `resolvedNodes` 基础上把「手动改过 position/size」的节点
+   * 钉成 left/top——该断点不再参与 constraints 换算，用户手动摆的位置就是最终位置。
+   */
+  const layoutNodes = computed(() => nodesForLayout(nodes.value, doc.value.breakpoints, breakpointId.value))
+  /**
    * 渲染/布局用的节点表：断点有效值之后再展开组件实例（`instance` → master 子树克隆）。
    * 合成 id 形如 `${实例id}~${masterId}`，只存在于这一层；文档里存的仍是实例节点本身。
    */
   const viewNodes = computed(() =>
-    expandInstances({ ...activePage.value, nodes: resolvedNodes.value }, doc.value),
+    expandInstances({ ...activePage.value, nodes: layoutNodes.value }, doc.value),
   )
   /** 编辑的几何基准：基准断点用原始节点，窄断点用有效节点（从屏幕上看到的位置接着拖） */
   const editNodes = computed(() => (isBaseBreakpoint.value ? nodes.value : resolvedNodes.value))
@@ -254,6 +298,8 @@ export const useEditorStore = defineStore('editor', () => {
       nodes: viewNodes.value,
       rootId: rootId.value,
       viewport: activePage.value.viewport,
+      // M23：基准断点是参考系，窄断点下 constraints 才有「跟着容器变」的含义
+      reference: baseViewport.value,
       measure: measureText,
     }),
   )
@@ -270,7 +316,8 @@ export const useEditorStore = defineStore('editor', () => {
     return {
       ...resolved,
       nodes: expandInstances(resolved, doc.value),
-      viewport: breakpointViewport(base),
+      // M23：导出按设计尺寸（基准断点的宽度），而不是「当前预览断点」的宽度
+      viewport: activePage.value.designViewport ?? breakpointViewport(base),
     }
   })
   const exportBoxes = computed(() =>
@@ -281,10 +328,21 @@ export const useEditorStore = defineStore('editor', () => {
       measure: measureText,
     }).boxes,
   )
-  const exportDoc = computed<Doc>(() => ({
-    ...doc.value,
-    pages: doc.value.pages.map((page) => (page.id === activePage.value.id ? exportPage.value : page)),
-  }))
+  const exportDoc = computed<Doc>(() => {
+    const base = baseBreakpoint.value
+    /** 每页自己的设计尺寸：改过宽高记在 designViewport，否则用基准断点预设（M23） */
+    const designSizeOf = (page: Page): { w: number; h: number } =>
+      page.designViewport ?? (base ? breakpointViewport(base) : page.viewport)
+    return {
+      ...doc.value,
+      pages: doc.value.pages.map((page) => {
+        if (page.id === activePage.value.id) return exportPage.value
+        // 非活动页的 viewport 可能还停在「上次预览的断点」，导出前统一回设计宽度（M23）
+        const design = designSizeOf(page)
+        return page.viewport.w === design.w && page.viewport.h === design.h ? page : { ...page, viewport: design }
+      }),
+    }
+  })
   const generatedHtml = computed(() => generateHtml(exportDoc.value, activePage.value.id, {}, exportBoxes.value))
   // M5：CSS 页签给出完整样式表（基础规则 + 每个节点的类规则 + 断点媒体查询）
   const generatedCss = computed(() => generateCss(exportDoc.value, activePage.value.id, exportBoxes.value))
@@ -370,6 +428,17 @@ export const useEditorStore = defineStore('editor', () => {
     if (next) select(next)
   }
 
+  /**
+   * 新插入的节点按基准断点的几何推断锚定（M23），否则它在平板/手机上会一直停在桌面坐标。
+   * 只推断「自己的位置」，不去动已有节点；用户可以再手动改。
+   */
+  function inferConstraintsOf(page: Page, node: SceneNode): Constraints | null {
+    const base = baseBreakpoint.value
+    const size = page.designViewport ?? (base ? breakpointViewport(base) : page.viewport)
+    const inferred = inferPageConstraints({ ...page.nodes, [node.id]: node }, page.root, size, measureText)
+    return inferred[node.id] ?? null
+  }
+
   // ── 结构变更 ──────────────────────────────────────────────────────────
   function insertComponent(
     type: SceneNode['type'],
@@ -378,10 +447,42 @@ export const useEditorStore = defineStore('editor', () => {
     const parentId = options.parentId ?? rootId.value
     const position = options.position ?? { x: 40 + (topLevel.value.length % 6) * 24, y: 40 + (topLevel.value.length % 6) * 24 }
     const node = createNode(type, { parentId, order: nextOrder(nodes.value, parentId), position })
+    const inferred = inferConstraintsOf(activePage.value, node)
+    if (inferred) node.layout = { ...node.layout, constraints: inferred }
     commit(`添加${type}`, [insertPatch(activePage.value.id, node)])
     selectedIds.value = [node.id]
     paletteType.value = null
     return node.id
+  }
+
+  /**
+   * 一键「自动适配」（M23）：按基准断点几何给当前页推断锚定。
+   * 只改仍是默认 left/top 的节点——已经手动选过锚定（或自动适配过）的保持不动。
+   */
+  function applyResponsiveAdapt(): number {
+    const page = activePage.value
+    const base = baseBreakpoint.value
+    const size = page.designViewport ?? (base ? breakpointViewport(base) : page.viewport)
+    const inferred = inferPageConstraints(nodes.value, rootId.value, size, measureText)
+    const patches: Patch[] = []
+    for (const id of Object.keys(inferred)) {
+      const node = nodes.value[id]
+      if (!node) continue
+      const current = node.layout.constraints
+      if (current.h !== 'left' || current.v !== 'top') continue
+      const target = inferred[id]
+      if (!target || (target.h === 'left' && target.v === 'top')) continue
+      patches.push(
+        updatePatch(page.id, id, { layout: node.layout }, { layout: { ...node.layout, constraints: target } }),
+      )
+    }
+    if (patches.length === 0) {
+      pushToast('这一页没有需要自动适配的组件了')
+      return 0
+    }
+    commit(`自动适配 ${patches.length} 个组件`, patches)
+    pushToast(`已按位置给 ${patches.length} 个组件推断锚定，切到平板/手机看看`)
+    return patches.length
   }
 
   // ── 组件（master / instance，M4） ─────────────────────────────────────
@@ -637,11 +738,10 @@ export const useEditorStore = defineStore('editor', () => {
 
   function moveSelection(dx: number, dy: number, label = '移动元素', mergeKey?: string): void {
     for (const node of selection.value) {
-      const next = {
-        ...node.layout,
-        position: { x: round(node.layout.position.x + dx), y: round(node.layout.position.y + dy) },
-      }
-      writeEdit(node.id, { layout: next }, label, mergeKey)
+      const box = boxes.value[node.id]
+      if (!box) continue
+      // 方向键也走绝对盒：窄断点下存储坐标被 constraints 换算过，直接加 dx 会跳（M23）
+      setAbsBox(node.id, { ...box, x: box.x + dx, y: box.y + dy }, label, mergeKey)
     }
   }
 
@@ -669,6 +769,36 @@ export const useEditorStore = defineStore('editor', () => {
       ...node.layout,
       position: { x: round(box.x), y: round(box.y) },
       size: { w: { ...node.layout.size.w, value: round(box.w) }, h: { ...node.layout.size.h, value: round(box.h) } },
+    }
+    writeEdit(id, { layout: next }, label, mergeKey)
+  }
+
+  /**
+   * 按**屏幕上的绝对盒**写位置尺寸（M23，拖拽/缩放/方向键都用它）。
+   *
+   * 窄断点下节点的存储坐标是「基准断点的位置 + constraints 换算」，和屏幕位置不是一个空间；
+   * 直接写存储坐标会让元素在拖起来的瞬间被换算推走。这里先把绝对盒换算成父内容框里的相对
+   * 坐标，并把该断点的锚定钉成 left/top —— 用户手动摆过的位置就是这个断点的最终位置。
+   */
+  function setAbsBox(
+    id: NodeId,
+    abs: { x: number; y: number; w: number; h: number },
+    label = '移动元素',
+    mergeKey?: string,
+  ): void {
+    const node = editNodes.value[id]
+    if (!node) return
+    const parentId = node.parentId ?? rootId.value
+    const parentBox = boxes.value[parentId]
+    const parentNode = viewNodes.value[parentId]
+    const padding = parentNode?.layout.padding ?? { top: 0, right: 0, bottom: 0, left: 0 }
+    const originX = (parentBox?.x ?? 0) + padding.left
+    const originY = (parentBox?.y ?? 0) + padding.top
+    const next: LayoutSpec = {
+      ...node.layout,
+      position: { x: round(abs.x - originX), y: round(abs.y - originY) },
+      size: { w: { ...node.layout.size.w, value: round(abs.w) }, h: { ...node.layout.size.h, value: round(abs.h) } },
+      constraints: isBaseBreakpoint.value ? node.layout.constraints : { h: 'left', v: 'top' },
     }
     writeEdit(id, { layout: next }, label, mergeKey)
   }
@@ -801,7 +931,7 @@ export const useEditorStore = defineStore('editor', () => {
     const next = createFromTemplate(id)
     if (!next) return false
     // 换模板可撤销：否则「载错模板 / 删错了」只能靠刷新页面（M9 用户反馈）。
-    commitDoc(`载入模板 ${id}`, next)
+    commitDoc(`载入模板 ${id}`, inferDocConstraints(next))
     selectedIds.value = []
     pushToast(`已载入模板：${id}`)
     return true
@@ -819,7 +949,8 @@ export const useEditorStore = defineStore('editor', () => {
       pushToast(result.error, 'error')
       return false
     }
-    setDoc(result.doc, '导入文档')
+    // 导入过来的文档节点全是 left/top，补一次锚定推断（M23）
+    setDoc(inferDocConstraints(result.doc), '导入文档')
     selectedIds.value = []
     pushToast(result.migratedFromV1 ? '已从 WebBuilder v1 迁移' : '已导入 v2 文档')
     return true
@@ -846,6 +977,8 @@ export const useEditorStore = defineStore('editor', () => {
     const page = docNext.pages.find((item) => item.id === docNext.activePageId)
     if (!page) return
     page.viewport = { w, h }
+    // M23：在基准断点上改宽高 = 改「设计尺寸」，记进 designViewport，切到窄断点再切回来不会丢
+    if (isBaseBreakpoint.value) page.designViewport = { w, h }
     const root = page.nodes[page.root]
     if (root) {
       root.layout = { ...root.layout, size: { w: { kind: 'fixed', value: w }, h: { kind: 'fixed', value: h } } }
@@ -862,7 +995,9 @@ export const useEditorStore = defineStore('editor', () => {
     const breakpoint = doc.value.breakpoints.find((item) => item.id === id && item.enabled)
     breakpointId.value = id
     if (!breakpoint) return
-    const size = breakpointViewport(breakpoint)
+    // 回到基准断点时用记下来的设计尺寸（M14 自定义过宽高就回到那个尺寸），而不是断点预设（M23）
+    const isBase = baseBreakpointId(doc.value.breakpoints) === breakpoint.id
+    const size = isBase ? (activePage.value.designViewport ?? breakpointViewport(breakpoint)) : breakpointViewport(breakpoint)
     applyViewport(size.w, size.h)
   }
 
@@ -1416,6 +1551,7 @@ export const useEditorStore = defineStore('editor', () => {
     breakpointId,
     breakpoints,
     baseBreakpoint,
+    baseViewport,
     isBaseBreakpoint,
     activeOverrideFlags,
     clipboard,
@@ -1453,6 +1589,8 @@ export const useEditorStore = defineStore('editor', () => {
     setPosition,
     setSize,
     setBox,
+    setAbsBox,
+    applyResponsiveAdapt,
     align,
     layer,
     nudge,

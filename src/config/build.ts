@@ -5,4 +5,4 @@
  * 对不上就说明浏览器还在用缓存/旧的 HMR 连接（Ctrl+F5 强刷），不用再猜「到底有没有生效」。
  * 每次用户反馈驱动的修订（M9 起）就加一位，和 README / PLAN 的里程碑号一致。
  */
-export const BUILD_TAG = 'M22'
+export const BUILD_TAG = 'M23'

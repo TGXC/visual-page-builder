@@ -176,7 +176,7 @@ describe('M1 编辑器：画布交互与面板', () => {
   })
 
   it('状态栏显示当前界面版本号（对不上就是浏览器缓存了旧文件）', async () => {
-    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M22')
+    expect(wrapper.find('[data-role="build-tag"]').text()).toBe('M23')
   })
 
   it('拖动元素改位置，Ctrl+Z 撤销回原位', async () => {
@@ -844,6 +844,75 @@ describe('M1 编辑器：画布交互与面板', () => {
     await flush()
     expect(store.nodes[inputId].props.placeholder).toBe('')
     expect(nodeEl(wrapper, inputId).querySelector('.canvas-el__content')?.textContent).toBe('')
+  })
+
+  it('M23：新插入的组件按落点推断锚定（贴右边 → 固定右边距）', async () => {
+    // rect 默认 160×100，放在 x=1280 刚好贴住桌面 1440 的右边缘
+    const id = store.insertComponent('rect', { position: { x: 1280, y: 60 } })
+    await flush()
+    expect(store.nodes[id].layout.constraints).toEqual({ h: 'right', v: 'top' })
+
+    // 居中放的组件推断成水平居中
+    const centered = store.insertComponent('rect', { position: { x: 640, y: 300 } })
+    await flush()
+    expect(store.nodes[centered].layout.constraints.h).toBe('center')
+  })
+
+  it('M23：手机上手动拖过之后锚定钉成 left/top，基准断点几何不受影响', async () => {
+    const id = store.insertComponent('rect', { position: { x: 1280, y: 60 } })
+    await flush()
+    store.setBreakpoint('mobile')
+    await flush()
+    store.setAbsBox(id, { x: 40, y: 300, w: 120, h: 60 }, 'init')
+    await flush()
+
+    // 手机断点上是用户手摆的位置，不再被「固定右边距」换算推走
+    expect(store.viewNodes[id].layout.position).toEqual({ x: 40, y: 300 })
+    expect(store.viewNodes[id].layout.constraints).toEqual({ h: 'left', v: 'top' })
+    expect(store.nodes[id].layout.position).toEqual({ x: 1280, y: 60 })
+    expect(store.nodes[id].layout.constraints).toEqual({ h: 'right', v: 'top' })
+  })
+
+  it('M23：属性面板能选水平/垂直锚定，窄断点上选的是该断点的覆盖', async () => {
+    const id = store.insertComponent('text', { position: { x: 100, y: 100 } })
+    store.select(id)
+    await flush()
+    const horizontal = wrapper.find('[data-role="constraint-h"]')
+    expect(horizontal.exists()).toBe(true)
+    expect((horizontal.element as HTMLSelectElement).value).toBe('left')
+
+    // 基准断点上改：写节点本身
+    await horizontal.setValue('center')
+    await flush()
+    expect(store.nodes[id].layout.constraints.h).toBe('center')
+
+    // 窄断点上改：写该断点的覆盖，基准仍然是 center
+    store.setBreakpoint('mobile')
+    await flush()
+    store.select(id)
+    await flush()
+    expect((wrapper.find('[data-role="constraint-h"]').element as HTMLSelectElement).value).toBe('center')
+    await wrapper.find('[data-role="constraint-v"]').setValue('bottom')
+    await flush()
+    expect(store.nodes[id].overrides.mobile?.layout?.constraints?.v).toBe('bottom')
+    expect(store.nodes[id].layout.constraints).toEqual({ h: 'center', v: 'top' })
+  })
+
+  it('M23：「按位置自动适配整页」给整页节点推断锚定（已在撤销栈里）', async () => {
+    const id = store.insertComponent('rect', { position: { x: 40, y: 40 } })
+    store.setAbsBox(id, { x: 640, y: 300, w: 160, h: 100 }, 'init')
+    store.select(id)
+    await flush()
+    expect(store.nodes[id].layout.constraints).toEqual({ h: 'left', v: 'top' })
+
+    await wrapper.find('[data-role="auto-adapt"]').trigger('click')
+    await flush()
+    // 640 + 160/2 = 720 = 1440/2 ⇒ 水平居中
+    expect(store.nodes[id].layout.constraints).toEqual({ h: 'center', v: 'top' })
+    expect(store.canUndo).toBe(true)
+    store.undo()
+    await flush()
+    expect(store.nodes[id].layout.constraints).toEqual({ h: 'left', v: 'top' })
   })
 
   it('自动保存：改动后 400ms 写入 localStorage', async () => {

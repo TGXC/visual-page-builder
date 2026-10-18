@@ -6,7 +6,10 @@ import {
   effectiveNode,
   effectiveNodes,
   effectivePage,
+  inferConstraints,
+  inferPageConstraints,
   mediaQueryForBreakpoint,
+  nodesForLayout,
   orderedBreakpoints,
   overrideFlags,
   writeOverride,
@@ -235,5 +238,62 @@ describe('writeOverride：只存差异', () => {
       order: true,
       empty: false,
     })
+  })
+})
+
+describe('M23 按几何推断锚定（constraints）', () => {
+  const content = { x: 0, y: 0, w: 1000, h: 600 }
+
+  it('整宽块拉伸、贴右边、居中、贴底各自推断成对应锚定', () => {
+    expect(inferConstraints({ x: 0, y: 0, w: 1000, h: 100 }, content)).toEqual({ h: 'left-right', v: 'top' })
+    expect(inferConstraints({ x: 800, y: 10, w: 200, h: 100 }, content)).toEqual({ h: 'right', v: 'top' })
+    expect(inferConstraints({ x: 400, y: 10, w: 200, h: 100 }, content)).toEqual({ h: 'center', v: 'top' })
+    expect(inferConstraints({ x: 20, y: 500, w: 200, h: 100 }, content)).toEqual({ h: 'left', v: 'bottom' })
+    expect(inferConstraints({ x: 20, y: 0, w: 200, h: 600 }, content)).toEqual({ h: 'left', v: 'top-bottom' })
+    // 什么都不贴、也不居中：保守地留在左上角（等于原来的行为）
+    expect(inferConstraints({ x: 120, y: 130, w: 200, h: 100 }, content)).toEqual({ h: 'left', v: 'top' })
+  })
+
+  it('推断不产生 scale（等比缩放留着手动选）', () => {
+    for (const w of [50, 200, 500, 900, 1000]) {
+      expect(inferConstraints({ x: 10, y: 10, w, h: 100 }, content).h).not.toBe('scale')
+    }
+  })
+
+  it('inferPageConstraints 在基准断点跑布局，按父内容框给出每个节点的建议', () => {
+    const root = makeNode({ id: 'root', type: 'frame', layout: { ...makeNode({ id: 'root' }).layout, size: { w: { kind: 'fill' }, h: { kind: 'fill' } } } })
+    const centered = makeNode({
+      id: 'centered',
+      parentId: 'root',
+      layout: { ...root.layout, position: { x: 450, y: 10 }, size: { w: { kind: 'fixed', value: 100 }, h: { kind: 'fixed', value: 100 } } },
+    })
+    const nodes = makeNodes([root, centered])
+    const inferred = inferPageConstraints(nodes, 'root', { w: 1000, h: 600 })
+    expect(inferred.centered).toEqual({ h: 'center', v: 'top' })
+    expect(inferred.root).toBeUndefined()
+  })
+
+  it('nodesForLayout：手动改过位置/尺寸的节点被钉成 left/top，显式选过锚定的不钉', () => {
+    const base = makeNode({ id: 'root', type: 'frame' })
+    const child = makeNode({
+      id: 'card',
+      parentId: 'root',
+      layout: { ...base.layout, constraints: { h: 'center', v: 'bottom' } },
+      overrides: { mobile: { layout: { position: { x: 5, y: 5 } } } },
+    })
+    const nodes = makeNodes([base, child])
+    expect(nodesForLayout(nodes, BPS, 'mobile').card.layout.constraints).toEqual({ h: 'left', v: 'top' })
+    // 基准断点没有覆盖，保持原锚定
+    expect(nodesForLayout(nodes, BPS, 'desktop').card.layout.constraints).toEqual({ h: 'center', v: 'bottom' })
+    // 用户在手机上显式选了「水平居中」：手动锚定优先，不再钉 left/top
+    const anchored = {
+      ...child,
+      overrides: {
+        mobile: {
+          layout: { position: { x: 5, y: 5 }, constraints: { h: 'center' as const, v: 'bottom' as const } },
+        },
+      },
+    }
+    expect(nodesForLayout(makeNodes([base, anchored]), BPS, 'mobile').card.layout.constraints.h).toBe('center')
   })
 })

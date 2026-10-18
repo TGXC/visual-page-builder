@@ -708,6 +708,21 @@
 
 **代价**：点选态是「轻选择」——不进撤销栈、不进图层面板，切页/新建/撤销后可能仍停着（只在画布选择或插入时清），要退出得点「取消选择」或再点一次该组件；点选态下右侧只读，不能「先改默认值再拖进画布」，必须先拖进去再在属性面板改；`paletteType` 只记类型、不记实例，本来也不该有实例概念。
 
+## D87：把休眠的 `Constraints` 接上——编辑与导出都以「基准断点视口」为参考系，每页记 `designViewport`
+
+**决定**：`Page` 增加可选 `designViewport: { w, h }`（基准断点下的设计尺寸，`normalizePage()` 夹取到 200–10000）；store 新增 `baseViewport`（`activePage.designViewport ?? breakpointViewport(baseBreakpoint)`），`layout` / `exportBoxes` 的 `computeLayout()` 都传 `reference: baseViewport`，`core/codegen` 的 `generateResponsiveCss()` 同样以设计视口为 `reference`；`applyViewport()` 只在基准断点写入 `designViewport`（切到平板/手机改宽高不算改设计尺寸）；`exportDoc` 每页按「自己的 `designViewport` ?? 基准断点预设」回设计尺寸，导出结果不随当前预览断点变化。
+
+**理由**：用户 m13532 要求「完善桌面，平板，手机之间组件相互适应的功能」。`Constraints{h,v}` 与 `applyConstraints()` 从 M2 就实现了右侧/两侧拉伸/居中/等比缩放的换算，但三个开关全关着：默认锚定一律 `{left,top}`、没有 UI、`computeLayout()` 从不传 `reference`（`needsDesignPass` 永远为 false，等于只有一个参考视口）。传了 `reference` 之后，布局引擎现成的 `designBoxes → boxes` 两帧路径就被激活：窄断点下 `right` 会跟着右边贴边、`left-right` 会拉伸、`center` 会重新居中、`scale` 会等比缩放，一行引擎代码都不用改。导出侧同理——媒体查询里的坐标必须相对设计尺寸算，否则「手机上的居中」会按「已经缩过的盒子」二次换算。
+
+**代价**：窄断点下 `computeLayout` 会多跑一遍设计帧（1000 节点 ≈ 4ms，仍在阈值内）；`designViewport` 是新增的持久字段，旧文档没有它会回落到基准断点预设，用户若改过宽高才会写进去；导出固定按设计尺寸意味着「导出的页面宽度 ≠ 当前预览宽度」，调试导出内容时要记得切回桌面断点看；参考系依赖「基准断点 = 按宽度排序的最宽一级」，如果以后允许「把手机设成基准」，要重新审视 `baseViewport` 的取值。
+
+## D88：锚定按几何自动推断、插入即带上，手动覆盖优先
+
+**决定**：`core/responsive` 新增 `inferConstraints(box, content)`（水平：宽占内容框比例 ≥ `SPAN_RATIO=0.85` 或两边留白都 ≤ `ANCHOR_EPSILON=2` → `left-right`、贴右（右侧留白 ≤2）→ `right`、中心偏差 ≤2 → `center`，否则 `left`；垂直同理 → `top-bottom` / `bottom` / `center` / `top`。**不推断 `scale`**：等比缩放会把窄断点里的按钮/标签缩成邮票大小，而且窄断点拖它时位移和尺寸都要乘缩放系数、手感会跟不上鼠标，需要缩放时由属性面板手动选）、`inferPageConstraints(nodes, rootId, viewport, measure?)`（按基准视口跑一次布局，逐节点按「相对父内容框」的盒推断）与 `nodesForLayout(nodes, breakpoints, breakpointId)`（先取有效节点；若该节点在断点级联链上有手动覆盖过 `layout.position`/`layout.size`，或当前断点覆盖里显式给了 `constraints`，就不再被推断值推动，钉成「手动优先」）。store 侧：`insertComponent()` 插入时按当前基准布局推断锚定；`applyResponsiveAdapt()` 把整页仍是默认 `{left,top}` 的节点批量换成推断值（一条可撤销补丁）；`inferDocConstraints()` 在读档、导入文档、载入模板时把存量默认锚定迁移成推断值；`setAbsBox()` 统一收口「绝对盒 → 写回相对坐标」（基准断点写节点、窄断点写 override 且把锚定钉成 `{left,top}`），`CanvasStage` 的拖拽/缩放与 `PropPanel` 的位置尺寸都改走它；`PropPanel` 新增「跨断点适应」区（水平/垂直锚定下拉直接写 `updateLayout()`，基准断点改节点、窄断点写该断点的覆盖，另有「此断点已手动调整」提示与重置）。`BUILD_TAG` 改 `'M23'`。
+
+**理由**：用户选了「A：自动锚定 + 手动覆盖优先」。要「自动」，就必须在没有 UI 的年代给出初始值——存量文档和用户新拖入的组件锚定全是 `{left,top}`，如果只接引擎不推断，自动适配等于没有发生。几何推断能覆盖多数真实排版（通栏容器→两端拉伸、页脚→贴底、标题→居中），而且推断结果立刻可见、可手动改；`scale` 是唯一不自动推断的锚定，因为小控件等比缩小后既不能看、拖动时换算也容易让手感失控，留作手动选项。手动优先是这条方案的兜底：用户一旦在某个断点上拖过/缩过（或在面板里选过锚定），说明他有明确意图，自动推断不能再把它拽回去。`setAbsBox()` 收口是因为 M19 之后画布交互已经统一在绝对坐标空间算，而 `setBox()` 要的是相对父内容框的坐标，不在一处转换就会在嵌套容器里算错父级原点。
+
+**代价**：推断只能按几何猜意图，阈值可能误判（「本想贴左、恰好居中」的元素会被判成居中）；`scale` 不自动推断，想等比缩放要逐个手动选；手动优先是「一拖就定死」——窄断点上动过一次，该节点在整条级联链上都不再自动适配，要恢复得点重置或重新执行整页自动适配；`scale` 手动选上之后是按「当前盒 / 设计盒」等比换算，容器 padding/gap 不参与插值，嵌套深时误差逐级累积；导出仍是「绝对盒 + 媒体查询」，真正的流式布局（C 路线）没做；这套适配只有组件测试锁数值，真实观感仍靠浏览器目测。
 
 
 

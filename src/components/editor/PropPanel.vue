@@ -5,8 +5,7 @@
  */
 import { computed } from 'vue'
 import { categoryLabel, componentLabel, getComponent } from '@/core/components'
-import type { SceneNode, StyleSpec } from '@/core/schema/types'
-import { rectOf } from '@/core/geometry'
+import type { Constraints, SceneNode, StyleSpec } from '@/core/schema/types'
 import { CONTENT_KEYS, STYLE_KEYS } from '@/core/schema/catalog'
 import { useEditorStore } from '@/stores/editor'
 
@@ -70,10 +69,44 @@ const palettePropsText = computed(() =>
     ? '无（用描述符默认值）'
     : paletteProps.value.map(([key, value]) => `${LABELS[key] ?? key}：${String(value)}`).join('；'),
 )
-const box = computed(() => (node.value ? rectOf(node.value) : null))
+/** 屏幕上的绝对盒（`rectOf()` 给的是相对父容器的坐标，窄断点下会换算，见 M23） */
+const box = computed(() => (node.value ? (store.boxes[node.value.id] ?? null) : null))
 const breakpointLabel = computed(
   () => store.breakpoints.find((item) => item.id === store.breakpointId)?.label ?? store.breakpointId,
 )
+
+/** M23：当前断点生效的锚定（窄断点可能来自覆盖，所以读 viewNodes 而不是基准节点） */
+const constraints = computed<Constraints>(() => {
+  const current = node.value ? store.viewNodes[node.value.id] : undefined
+  return current?.layout.constraints ?? { h: 'left', v: 'top' }
+})
+const H_CONSTRAINTS = [
+  { key: 'left', label: '固定左边距' },
+  { key: 'right', label: '固定右边距' },
+  { key: 'left-right', label: '左右两边固定' },
+  { key: 'center', label: '水平居中' },
+  { key: 'scale', label: '按比例缩放' },
+] as const
+const V_CONSTRAINTS = [
+  { key: 'top', label: '固定上边距' },
+  { key: 'bottom', label: '固定下边距' },
+  { key: 'top-bottom', label: '上下两边固定' },
+  { key: 'center', label: '垂直居中' },
+  { key: 'scale', label: '按比例缩放' },
+] as const
+const constraintHint = computed(() => {
+  if (!node.value) return ''
+  const { h, v } = constraints.value
+  const horizontal = H_CONSTRAINTS.find((item) => item.key === h)?.label ?? h
+  const vertical = V_CONSTRAINTS.find((item) => item.key === v)?.label ?? v
+  if (!store.isBaseBreakpoint && store.activeOverrideFlags.layout) {
+    return `这个断点上手动调过位置尺寸，先用你调的值；锚定：${horizontal} / ${vertical}`
+  }
+  if (!store.isBaseBreakpoint && !store.activeOverrideFlags.layout) {
+    return `继承基准断点的锚定：${horizontal} / ${vertical}`
+  }
+  return `屏幕变窄/变高时：${horizontal}，${vertical}`
+})
 
 const ALIGNS = [
   { key: 'left', label: '左对齐' },
@@ -120,8 +153,22 @@ const extraKeys = computed(() => Object.keys(node.value?.props ?? {}).filter((ke
 function setGeometry(key: 'x' | 'y' | 'w' | 'h', event: Event): void {
   const value = Number((event.target as HTMLInputElement).value)
   if (!node.value || !box.value || Number.isNaN(value)) return
-  const next = { ...box.value, [key]: value }
-  store.setBox(node.value.id, next, '修改位置尺寸')
+  // 输入框里是屏幕上的绝对坐标，换算与钉锚定都交给 store.setAbsBox()（M23）
+  store.setAbsBox(node.value.id, { ...box.value, [key]: value }, '修改位置尺寸')
+}
+
+/** M23：改锚定 = 组件在这个断点上怎么跟着父容器变。窄断点改就是该断点的覆盖。 */
+function setConstraint(axis: 'h' | 'v', event: Event): void {
+  const value = (event.target as HTMLSelectElement).value
+  const target = node.value
+  const current = target ? store.viewNodes[target.id] : undefined
+  if (!target || !current) return
+  const next: Constraints = { ...current.layout.constraints, [axis]: value }
+  store.updateLayout(target.id, { constraints: next }, `修改${axis === 'h' ? '水平' : '垂直'}锚定`)
+}
+
+function adaptPage(): void {
+  store.applyResponsiveAdapt()
 }
 
 function setName(event: Event): void {
@@ -265,6 +312,24 @@ function copyStyle(): void {
           </label>
         </div>
       </template>
+
+      <p class="prop-section">跨断点适应</p>
+      <div class="prop-grid">
+        <label class="prop-cell">
+          <span class="prop-row__label">水平锚定</span>
+          <select class="prop-input" data-role="constraint-h" :value="constraints.h" @change="setConstraint('h', $event)">
+            <option v-for="option in H_CONSTRAINTS" :key="option.key" :value="option.key">{{ option.label }}</option>
+          </select>
+        </label>
+        <label class="prop-cell">
+          <span class="prop-row__label">垂直锚定</span>
+          <select class="prop-input" data-role="constraint-v" :value="constraints.v" @change="setConstraint('v', $event)">
+            <option v-for="option in V_CONSTRAINTS" :key="option.key" :value="option.key">{{ option.label }}</option>
+          </select>
+        </label>
+      </div>
+      <p class="prop-hint" data-role="constraint-hint">{{ constraintHint }}</p>
+      <button type="button" class="ghost-button" data-role="auto-adapt" @click="adaptPage">按位置自动适配整页</button>
 
       <p class="prop-section">内容</p>
       <label v-for="key in CONTENT_KEYS" :key="key" class="prop-row">

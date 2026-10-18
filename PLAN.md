@@ -309,6 +309,16 @@ npm run build
 
 **验收**：`npm test` 52 文件 / 611 用例、覆盖率 97.19 / 90.83 / 97.40 / 99.36、`lint` 0、`build` 0 类型错误（99 modules；JS 289.08 kB / gzip 99.75，CSS 30.40 kB / gzip 5.86）、`test:perf` 布局 4.06ms / 导出 83.13ms（CSS 25.27 / HTML 26.39 / 整站 27.13 / ZIP 4.33ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 7317`）。新增 3 例单测（旧输入框迁移、自定义色不动、断点覆盖一起迁移）与 2 例组件测试（点击只显示信息不插入、再点一次或选中画布元素退出点选态）。**未做**：迁移只在收敛层跑一次（内存中已加载的文档要刷新/重导才迁移）；只认 v1 灰字面值；text 搬走后 label 语义丢失；点选态不进撤销栈/图层面板，切页后可能仍停留；点选态右侧只读，不能先改默认值再拖入。
 
+### M23 桌面/平板/手机之间的自动适配（计划外，用户第十五轮反馈）
+
+**触发**：用户第十五轮反馈「把之前提到的完善桌面，平板，手机之间组件相互适应的功能完善一下」——M16 时只给了 A/B/C 三条候选路线（A 整页等比 fit / B 切换断点自动生成覆盖 / C 容器流式布局），这次用户用选项确认选 **A：自动锚定 + 手动覆盖优先**。
+
+**根因**：数据模型（`Constraints{h,v}` 的 `left / right / left-right / center / scale`）与布局引擎（`applyConstraints()`）从 M2 起就实现了换算，但三处都断着：默认锚定一律 `{left,top}`、没有任何 UI 能改、编辑器与导出调 `computeLayout()` 时都没传 `reference`，所以切到平板/手机时组件仍按桌面绝对坐标摆，超出宽度的还会跑到画布外。
+
+**做了什么**：`core/layout` 的 `reference` 参数正式启用——store 的 `layout` / `exportBoxes` 与 codegen 的 `generateResponsiveCss` 都以基准断点视口（`baseViewport`）为参考系；`core/responsive` 新增 `inferConstraints()` / `inferPageConstraints()`（按几何推断：宽/高占内容框 ≥85%→两端拉伸、贴边差 ≤2px→贴右/贴底、中心偏差 ≤2px→居中，其余保持左/上；`scale` 不自动推断，避免小控件等比缩成邮票）与 `nodesForLayout()`（级联链上手动覆盖过 `position/size` 或显式选过锚定的节点钉成 `{left,top}`，手动优先）；`Page.designViewport` 记录基准断点下的设计尺寸（`normalize` 收敛，`applyViewport()` 在基准断点写入），导出固定按设计尺寸而不是当前预览断点；store 新增 `insertComponent()` 自动带推断锚定、`applyResponsiveAdapt()`（整页一键适配，走普通可撤销补丁）、`inferDocConstraints()`（插入/读档时把仍是默认 left/top 的节点迁移成推断值）、`setAbsBox()`（绝对坐标收口，窄断点写 override 并定住锚定）；`CanvasStage` 拖拽/缩放改走 `setAbsBox`、`PropPanel` 新增「跨断点适应」区（水平/垂直锚定下拉 + 手动调整提示 + 重置）且位置/尺寸按绝对盒显示写入；`BUILD_TAG` 改 `M23`（D87、D88）。
+
+**验收**：`npm test` 52 文件 / 620 用例、覆盖率 97.15 / 90.90 / 97.43 / 99.41、`lint` 0、`build` 0 类型错误（99 modules；JS 294.42 kB / gzip 101.39，CSS 30.40 kB / gzip 5.86）、`test:perf` 布局 4.39ms / 导出 99.14ms（CSS 30.21 / HTML 33.87 / 整站 31.99 / ZIP 4.39ms）、`test:smoke` 通过（`mediaQueries 2` / `zipBytes 7317`）；dev 5199 返回 `BUILD_TAG = "M23"`。新增 4 例 `responsive` 单测（满宽拉伸、居中/贴右、近满宽不误判成 scale、`inferPageConstraints` 与手动优先）、1 例导出测试（居中组件在手机媒体查询里按 375 宽重新居中）、4 例组件测试（新插组件带推断锚定、一键自动适配、窄断点拖拽写 override 并定住锚定、属性面板设锚定后不再被自动推断覆盖）。**未做**：推断只能按几何猜意图（阈值可能误判）、`scale` 不自动推断（要手动选）；手动优先会「一拖定死」，要恢复自适应得点重置或重新自动适配；导出仍是绝对盒 + 媒体查询，`scale` 不插值容器 padding/gap，真流式布局（C 路线）没做；只有出现断点差异的节点才会写进媒体查询。
+
 ## 4. 数据模型约定（v2 关键约束）
 
 - `Doc.version === 2`；导入任何来源（文件 / localStorage / AI / v1 迁移）都先过 `normalizeDoc`。

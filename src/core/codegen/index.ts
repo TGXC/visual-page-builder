@@ -203,6 +203,9 @@ export function generateResponsiveCss(doc: Doc, pageKey: string): string {
   const ordered = orderedBreakpoints(doc.breakpoints)
   if (ordered.length <= 1) return ''
   const slug = pageClassOf(doc, page)
+  // M23：断点的几何一律以基准断点（设计尺寸）为参考系跑 constraints 换算，
+  // 否则媒体查询里的 left/width 还是桌面坐标，导出后在手机上会挤成一团。
+  const baseViewport = page.designViewport ?? breakpointViewport(ordered[0])
   const blocks: string[] = []
   const declOptions: DeclOptions = { tokens: doc.theme.tokens, cssVars: true }
   for (let index = 1; index < ordered.length; index += 1) {
@@ -211,8 +214,18 @@ export function generateResponsiveCss(doc: Doc, pageKey: string): string {
     if (!query) continue
     const current = pageAtBreakpoint(page, doc.breakpoints, breakpoint)
     const previous = pageAtBreakpoint(page, doc.breakpoints, ordered[index - 1])
-    const currentBoxes = computeLayout({ nodes: current.nodes, rootId: current.root, viewport: current.viewport }).boxes
-    const previousBoxes = computeLayout({ nodes: previous.nodes, rootId: previous.root, viewport: previous.viewport }).boxes
+    const currentBoxes = computeLayout({
+      nodes: current.nodes,
+      rootId: current.root,
+      viewport: current.viewport,
+      reference: baseViewport,
+    }).boxes
+    const previousBoxes = computeLayout({
+      nodes: previous.nodes,
+      rootId: previous.root,
+      viewport: previous.viewport,
+      reference: baseViewport,
+    }).boxes
     const rules: string[] = [
       `  .${slug} { width:${px(current.viewport.w)}; height:${px(current.viewport.h)} }`,
     ]

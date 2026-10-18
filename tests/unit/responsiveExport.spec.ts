@@ -137,4 +137,26 @@ describe('M3 导出：断点感知的媒体查询', () => {
     doc.breakpoints = DEFAULT_BREAKPOINTS.map((bp) => ({ ...bp, enabled: bp.id === 'desktop' }))
     expect(generateResponsiveCss(doc, pageId)).toBe('')
   })
+
+  it('M23：居中锚定的组件在手机媒体查询里按窄断点宽度重新居中', () => {
+    const root = makeNode({ id: 'root', type: 'frame' })
+    const centered = makeNode({
+      id: 'banner',
+      parentId: 'root',
+      layout: {
+        ...root.layout,
+        position: { x: 670, y: 20 },
+        size: { w: { kind: 'fixed', value: 100 }, h: { kind: 'fixed', value: 80 } },
+        constraints: { h: 'center', v: 'top' },
+      },
+    })
+    const nodes = makeNodes([root, centered])
+    const page = makePage({ id: 'page_1', nodes })
+    const doc = makeDoc({ pages: [page] })
+    // 基准断点（桌面 1440）里 x=670 → 手机 375 宽时应为 (375-100)/2=137.5
+    const mobile = blockOf(generateResponsiveCss(doc, page.id), '@media (max-width: 767.98px)')
+    expect(Number.parseFloat(declOf(mobile, 'banner', 'left'))).toBeCloseTo(137.5, 1)
+    // 尺寸没变就不会写进媒体查询（只写与上一级不同的部分）
+    expect(declOf(mobile, 'banner', 'width')).toBe('')
+  })
 })

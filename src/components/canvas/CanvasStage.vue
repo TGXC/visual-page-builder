@@ -59,8 +59,6 @@ interface Interaction {
    * 就会和屏幕上的位置对不上，这就是「按在组件后半段、一拖却跑到前半段」的来源（ADR D81）。
    */
   boxes: Map<NodeId, Box>
-  /** 按下那一刻的**相对**盒：写回 `setBox()` 要的是它，和 `boxes` 只差一个父级原点 */
-  rels: Map<NodeId, Box>
   startBox: Box
   active: boolean
 }
@@ -244,15 +242,11 @@ const dropHint = computed(() => {
 function beginMove(event: PointerEvent, node: SceneNode): void {
   const ids = store.selectedIds.includes(node.id) ? topLevelSelection() : [node.id]
   const boxes = new Map<NodeId, Box>()
-  const rels = new Map<NodeId, Box>()
   for (const id of ids) {
-    // 绝对盒（`store.boxes`）才是屏幕上的位置；窄断点下 `store.nodes` 还是基准断点的几何，
-    // 从它起拖会让元素瞬间跳回桌面坐标（ADR D81）
+    // 绝对盒（`store.boxes`）才是屏幕上的位置；窄断点下存储坐标是「基准位置 + 锚定换算」（ADR D81/D87）
     const box = store.boxes[id]
-    const rel = view.value[id]
-    if (!box || !rel) continue
+    if (!box) continue
     boxes.set(id, box)
-    rels.set(id, rectOf(rel))
   }
   const start = localPoint(event.clientX, event.clientY)
   interaction = {
@@ -266,7 +260,6 @@ function beginMove(event: PointerEvent, node: SceneNode): void {
     handle: null,
     ids,
     boxes,
-    rels,
     startBox: unionOf([...boxes.values()]),
     active: false,
   }
@@ -313,7 +306,6 @@ function onStagePointerDown(event: PointerEvent): void {
     store.select(targetId)
     const start = localPoint(event.clientX, event.clientY)
     const absBox = store.boxes[targetId] ?? rectOf(node)
-    const relNode = view.value[targetId]
     interaction = {
       mode: 'resize',
       pointerId: event.pointerId,
@@ -325,7 +317,6 @@ function onStagePointerDown(event: PointerEvent): void {
       handle: handleEl.getAttribute('data-handle') as Handle,
       ids: [targetId],
       boxes: new Map([[targetId, absBox]]),
-      rels: new Map([[targetId, relNode ? rectOf(relNode) : absBox]]),
       startBox: absBox,
       active: true,
     }
@@ -373,7 +364,6 @@ function startMarquee(event: PointerEvent): void {
     handle: null,
     ids: [],
     boxes: new Map(),
-    rels: new Map(),
     startBox: { x: point.x, y: point.y, w: 0, h: 0 },
     active: false,
   }
@@ -447,16 +437,10 @@ function onStagePointerMove(event: PointerEvent): void {
     const target = interaction.ids[0]
     const snapped = applySnap(box, snapTargets(interaction.ids), snapThreshold(interaction))
     guides.value = snapped.guides
-    // 吸附在绝对空间里算；写回 `setBox()` 要换成相对父容器内容框的坐标
-    const startRel = interaction.rels.get(target) ?? interaction.startBox
-    store.setBox(
+    // 屏幕上的绝对盒直接写回：store 负责换算成父内容框坐标并把该断点锚定钉成 left/top（M23）
+    store.setAbsBox(
       target,
-      {
-        x: startRel.x + (snapped.box.x - interaction.startBox.x),
-        y: startRel.y + (snapped.box.y - interaction.startBox.y),
-        w: snapped.box.w,
-        h: snapped.box.h,
-      },
+      { x: snapped.box.x, y: snapped.box.y, w: snapped.box.w, h: snapped.box.h },
       '缩放元素',
       'resize',
     )
@@ -473,16 +457,17 @@ function onStagePointerMove(event: PointerEvent): void {
   guides.value = snapped.guides
   // 落点容器和当前父级不同才算「换父级」：拖到自己容器里仍然是普通移动
   const container = containerAt(grabbed, interaction.ids)
-  const sameParent = interaction.ids.every((id) => (store.nodes[id]?.parentId ?? store.rootId) === container)
+  const sameParent = interaction.ids.every((id) => (view.value[id]?.parentId ?? store.rootId) === container)
   dropTarget.value = container && !sameParent ? container : null
   const shiftX = snapped.box.x - interaction.startBox.x
   const shiftY = snapped.box.y - interaction.startBox.y
   for (const id of interaction.ids) {
-    const start = interaction.rels.get(id)
+    const start = interaction.boxes.get(id)
     if (!start) continue
-    store.setBox(id, { x: start.x + shiftX, y: start.y + shiftY, w: start.w, h: start.h }, '移动元素', 'move')
+    // 绝对盒整体位移，交给 store.setAbsBox() 换算并钉住该断点的锚定（M23）
+    store.setAbsBox(id, { x: start.x + shiftX, y: start.y + shiftY, w: start.w, h: start.h }, '移动元素', 'move')
   }
-  // 等距提示：必须在 setBox 之后算，才拿到移动后的盒子
+  // 等距提示：必须在写回之后算，才拿到移动后的盒子
   spacings.value = spacingHints({
     nodes: view.value,
     boxes: store.boxes,

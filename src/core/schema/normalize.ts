@@ -345,7 +345,17 @@ export function normalizePage(raw: unknown, fallbackId: string): Page {
   const name = stringOr(source.name, '未命名页面').slice(0, 40)
   const rawPath = typeof source.path === 'string' ? source.path.trim() : ''
   const path = rawPath === '' ? '/' : rawPath.startsWith('/') ? rawPath : `/${rawPath}`
-  return { id, name, path, root, nodes, viewport }
+  // M23：设计尺寸可选，缺省时由断点预设兜底（不写进文档，避免每次切断点都改文档）
+  const designSource = isRecord(source.designViewport) ? source.designViewport : null
+  const designViewport = designSource
+    ? {
+        w: clampInt(designSource.w, viewport.w, MIN_VIEWPORT, MAX_VIEWPORT),
+        h: clampInt(designSource.h, viewport.h, MIN_VIEWPORT, MAX_VIEWPORT),
+      }
+    : undefined
+  return designViewport === undefined
+    ? { id, name, path, root, nodes, viewport }
+    : { id, name, path, root, nodes, viewport, designViewport }
 }
 
 export function normalizeBreakpoints(raw: unknown): Breakpoint[] {

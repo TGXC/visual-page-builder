@@ -166,7 +166,13 @@ export interface Page {
   /** 页面根容器（frame）的节点 id；它是整棵树里唯一 parentId===null 的节点 */
   root: NodeId
   nodes: Record<NodeId, SceneNode>
+  /** 当前预览断点的画布尺寸（会随断点切换改写，D17：视口是看的姿势） */
   viewport: { w: number; h: number }
+  /**
+   * 基准断点下的设计尺寸（M23）：constraints 换算的参考系。
+   * 只记在页面上、不随断点切换改写，所以切回桌面时能回到用户自定义的宽高（M14）。
+   */
+  designViewport?: { w: number; h: number }
 }
 
 export interface Breakpoint {
